@@ -1096,6 +1096,11 @@ function buildMenu(force = false) {
     { label: 'Reload settings', click: () => reloadConfig() },
     { label: 'Show the config file', click: () => revealConfig() },
     { type: 'separator' },
+    { label: 'About Claude Island', click: () => showAbout() },
+    // The About panel is native, and nothing in it is clickable — so the
+    // handle it names gets an item that actually goes there.
+    { label: '@billybowss on X', click: () => openExternal('https://x.com/billybowss') },
+    { type: 'separator' },
     { label: 'Restart the island', click: () => autostart.restart() },
     { label: 'Quit (until next login)', click: () => app.quit() }
   ]));
@@ -1181,6 +1186,56 @@ function toggleWings() {
   config.wings = machine.wings;
   saveConfig({ wings: machine.wings });
   buildMenu();
+}
+
+/**
+ * What the app says about itself, in the panel macOS draws for every app.
+ *
+ * Only applicationName, applicationVersion, version, copyright and credits
+ * reach it on macOS — `website` and `authors` are Linux-only keys — and none
+ * of it is clickable, so every address here is also written out in full for
+ * someone reading rather than clicking.
+ */
+function setAboutPanel() {
+  const { version } = require('../package.json');
+  app.setAboutPanelOptions({
+    applicationName: 'Claude Island',
+    applicationVersion: version,
+    copyright: `© ${new Date().getFullYear()} @billybowss · MIT`,
+    credits: [
+      'Your Claude usage limits, in the MacBook notch.',
+      '',
+      'Made by @billybowss — x.com/billybowss',
+      'github.com/jarvisbot19/claude-island',
+      '',
+      'The data layer is ported from Claude-Marge-Widget',
+      'by Ulrich Rozier (MIT) — the same real limits, read',
+      'the same honest way.'
+    ].join('\n')
+  });
+}
+
+/**
+ * The one moment the island takes focus.
+ *
+ * Everything else here is built so the window never steals a keystroke, but
+ * the About panel is a real window: opened without focus it lands behind
+ * whatever you were doing, and clicking a menu item that appears to do
+ * nothing is worse than not having the item.
+ */
+function showAbout() {
+  app.focus({ steal: true });
+  app.showAboutPanel();
+}
+
+/** A link the user asked for, opened in their browser rather than in ours. */
+async function openExternal(url) {
+  const { shell } = require('electron');
+  try {
+    await shell.openExternal(url);
+  } catch (err) {
+    trace(`could not open ${url}: ${(err && err.message) || err}`);
+  }
 }
 
 async function revealConfig() {
@@ -1406,6 +1461,7 @@ process.on('unhandledRejection', (err) => trace(`unhandled rejection: ${err}`));
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
+  setAboutPanel();
 
   const display = islandDisplay();
   createWindow(display || screen.getPrimaryDisplay());

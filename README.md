@@ -294,6 +294,12 @@ config, so the same scene renders identically on any machine.
 - Burn rate needs ~10 minutes of samples before it will say anything, and
   says nothing at all unless a quota would run out before its window resets.
 
+## About
+
+Made by [@billybowss](https://x.com/billybowss). The tray menu carries an
+**About Claude Island** item — the standard macOS panel, with the version
+and the credits — and a link to the same handle.
+
 ## License
 
 MIT. An unofficial personal project, not affiliated with, endorsed by, or
