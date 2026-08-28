@@ -1235,7 +1235,7 @@ function setAboutPanel() {
       'Your Claude Code usage limits, in the notch.',
       '',
       'Made by @billybowss — x.com/billybowss',
-      'github.com/jarvisbot19/limen'
+      'github.com/bilalmbt/limen'
     ].join('\n')
   });
 }

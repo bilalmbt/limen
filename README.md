@@ -27,7 +27,27 @@ alert thresholds sit and which you have crossed. A failed fetch never blanks
 the display — the last real numbers stay, with the reason and the retry time
 (`Anthropic throttled the check — retrying in 8 min`).
 
-## Running it
+## Installing
+
+Download the latest [release](https://github.com/bilalmbt/limen/releases/latest)
+&mdash; `-arm64` for Apple Silicon, `-x64` for Intel &mdash; drag Limen to
+Applications, and open it from there. Signed and notarized, so it opens
+without a Gatekeeper detour.
+
+**Open it from Applications, not from the disk image.** macOS runs a
+quarantined app straight out of a `.dmg` from a randomized read-only path,
+and from there Limen cannot reach your Keychain &mdash; it will report that
+Claude Code is not signed in when it plainly is.
+
+**The first read raises a Keychain prompt naming `security`, not Limen.**
+That is Apple's own `/usr/bin/security`, which is how the token is read; the
+prompt is asking on its behalf. Allow it once and it stays quiet. Limen sends
+your token nowhere but `api.anthropic.com`, keeps no copy of it, and has no
+analytics of any kind.
+
+Requires Claude Code signed in, on macOS 11 or later.
+
+## Running it from source
 
 Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
 `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
@@ -44,6 +64,8 @@ Useful commands:
 npm run usage   # raw quotas as JSON, no interface
 npm run demo    # stays open with fixture data (ISLAND_SCENE=expanded|peek|wings|wings-week|wings-three|full|stale|empty)
 npm run spike   # placement proof: can a window sit over the menu bar strip? (exit 0 = yes)
+npm run dist    # signed .dmg for both architectures (needs a Developer ID cert)
+npm run notarize  # submit, staple, and verify the built .dmg
 ISLAND_CAPTURE=/tmp/island.png ISLAND_SCENE=stale npm start   # screenshot a state, then exit
 
 # Freeze a frame mid-animation — the settled state says nothing about how the
