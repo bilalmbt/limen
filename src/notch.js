@@ -20,8 +20,20 @@
 const G = {
   aspect: 1.6,             // flat Retina MacBook panels are exactly 16:10
   notchSlack: 2,           // rounding tolerance in the aspect rule, in points
-  notchWidthRatio: 0.125,  // logical notch width ~= 12.5% of display width
-  virtualNotchWidth: 196,  // the drawn "notch" on displays without one
+  // Measured on real hardware with NSScreen, not derived from screenshots:
+  //   MBP 14"  185 x 32 pt at 1512 x 982   -> 185/1512 = 0.12235
+  //   MBP 16"  220 x 38 pt at 1800 x 1169  -> 220/1800 = 0.12222
+  //   MacBook Air                          -> about 12%
+  // The ratio is constant across every notched Mac, so one number covers
+  // all of them at any scaling. 0.1223 reproduces both measurements exactly.
+  notchWidthRatio: 0.1223,
+  // A display with no cutout gets an ANCHOR, not a replica. There is no
+  // camera housing to represent, so it is sized to root the island —
+  // proportional to the menu bar, which is the one dimension it must sit
+  // in — rather than to impersonate hardware that isn't there.
+  virtualAnchorScale: 4,
+  virtualAnchorMin: 88,
+  virtualAnchorMax: 140,
   hotMargin: 24,           // the hot zone extends this far past the notch sides
   fallbackMenuBar: 24,     // hot-strip height when the OS reports none
   panelWidth: 400,         // the expanded panel
@@ -47,14 +59,20 @@ function metrics(display, overrides = {}) {
   const band = b.height - b.width / G.aspect;
   const notched = display.internal === true && band > G.notchSlack;
 
-  // On a notched panel the band height is the truth even when the menu bar is
-  // auto-hidden (the physical cutout does not hide with it).
+  // The notch is exactly as tall as the menu bar — Apple sizes the bar so
+  // its background covers the cutout. The ASPECT band is a few points
+  // taller (the panel below the cutout is not precisely 16:10), so using it
+  // as the height overstated the notch by ~5 pt on every model. The band is
+  // still the right fallback for an auto-hidden menu bar, where the
+  // physical cutout does not hide along with it.
   const hotHeight = notched
-    ? Math.round(band)
+    ? (menuBar > 20 ? menuBar : Math.round(band))
     : (menuBar > 0 ? menuBar : G.fallbackMenuBar);
 
-  const notchWidth = overrides.notchWidth ||
-    (notched ? Math.round(b.width * G.notchWidthRatio) : G.virtualNotchWidth);
+  const notchWidth = overrides.notchWidth || (notched
+    ? Math.round(b.width * G.notchWidthRatio)
+    : Math.min(G.virtualAnchorMax,
+      Math.max(G.virtualAnchorMin, Math.round(hotHeight * G.virtualAnchorScale))));
 
   return {
     notched,

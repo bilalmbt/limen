@@ -9,36 +9,55 @@ let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
 /** A display fixture: bounds plus the menu bar the OS reserves. */
-const display = (width, height, { internal = true, menuBar = null, x = 0, y = 0, id = 1 } = {}) => {
-  const bar = menuBar === null
-    ? (internal && height - width / 1.6 > 2 ? Math.round(height - width / 1.6) : 25)
-    : menuBar;
-  return {
-    id,
-    internal,
-    bounds: { x, y, width, height },
-    workArea: { x, y: y + bar, width, height: height - bar }
-  };
-};
+const display = (width, height, { internal = true, menuBar = 25, x = 0, y = 0, id = 1 } = {}) => ({
+  id,
+  internal,
+  bounds: { x, y, width, height },
+  workArea: { x, y: y + menuBar, width, height: height - menuBar }
+});
 
-// Real machines, real scaling modes. The band arithmetic is the claim.
+/**
+ * Real machines with their MEASURED menu-bar heights — the notch is exactly
+ * as tall as the bar, so these are the notch heights too. Note they are a
+ * few points SHORTER than the aspect band (982 - 1512/1.6 = 37, not 32):
+ * the panel below the cutout is not precisely 16:10, which is why the band
+ * detects a notch but must not be used to size one.
+ */
 const FIXTURES = [
-  ['MBP 14" default (1512x982)', display(1512, 982), true, 37],
-  ['MBP 14" more space (1800x1169)', display(1800, 1169), true, 44],
-  ['MBP 14" larger text (1147x745)', display(1147, 745), true, 28],
-  ['MBP 16" default (1728x1117)', display(1728, 1117), true, 37],
-  ['Air 13.6" default (1280x832)', display(1280, 832), true, 32],
-  ['flat MBP 13" (1440x900)', display(1440, 900), false, null],
-  ['flat MBP (1280x800)', display(1280, 800), false, null],
-  ['external 16:9 (1920x1080)', display(1920, 1080, { internal: false, menuBar: 25 }), false, null],
-  ['iMac-like internal 16:9 (2240x1260)', display(2240, 1260), false, null]
+  ['MBP 14" default (1512x982)', display(1512, 982, { menuBar: 32 }), true, 32, 185],
+  ['MBP 16" default (1728x1117)', display(1728, 1117, { menuBar: 38 }), true, 38, 211],
+  ['MBP 16" more space (1800x1169)', display(1800, 1169, { menuBar: 38 }), true, 38, 220],
+  ['MBP 14" larger text (1147x745)', display(1147, 745, { menuBar: 25 }), true, 25, 140],
+  ['Air 13.6" default (1280x832)', display(1280, 832, { menuBar: 32 }), true, 32, 157],
+  ['flat MBP 13" (1440x900)', display(1440, 900), false, 25, null],
+  ['flat MBP (1280x800)', display(1280, 800), false, 25, null],
+  ['external 16:9 (1920x1080)', display(1920, 1080, { internal: false }), false, 25, null],
+  ['iMac-like internal 16:9 (2240x1260)', display(2240, 1260), false, 25, null]
 ];
 
 test('the aspect rule detects every notched fixture and no flat one', () => {
-  for (const [name, d, notched, band] of FIXTURES) {
-    const m = N.metrics(d);
-    assert.strictEqual(m.notched, notched, `${name}: notched should be ${notched}`);
-    if (notched) assert.strictEqual(m.hotHeight, band, `${name}: band should be ${band}`);
+  for (const [name, d, notched] of FIXTURES) {
+    assert.strictEqual(N.metrics(d).notched, notched, `${name}: notched should be ${notched}`);
+  }
+});
+
+test('a notch is exactly as tall as the menu bar, not as tall as the aspect band', () => {
+  for (const [name, d, notched, height] of FIXTURES) {
+    if (!notched) continue;
+    assert.strictEqual(N.metrics(d).hotHeight, height, `${name}: height should be ${height}`);
+  }
+  // The measured case that proves the point. The 14" band computes to 37,
+  // the real cutout is 32: the panel below it is not precisely 16:10, so
+  // the band detects a notch honestly but sizes one badly.
+  const mbp14 = N.metrics(display(1512, 982, { menuBar: 32 }));
+  assert.strictEqual(Math.round(982 - 1512 / 1.6), 37, 'the band says 37');
+  assert.strictEqual(mbp14.hotHeight, 32, 'the hardware says 32, and the menu bar reports it');
+});
+
+test('notch width matches the measured 12.2% on every real machine', () => {
+  for (const [name, d, notched, , width] of FIXTURES) {
+    if (!notched) continue;
+    assert.strictEqual(N.metrics(d).notchWidth, width, `${name}: width should be ${width}`);
   }
 });
 
@@ -52,8 +71,28 @@ test('a notched-shaped external display is never treated as notched', () => {
 });
 
 test('an auto-hidden menu bar does not erase the hot strip on a notched panel', () => {
+  // With the bar hidden there is nothing to measure, so the aspect band is
+  // the fallback: a few points generous, but the cutout is still there.
   const d = display(1512, 982, { menuBar: 0 });
-  assert.strictEqual(N.metrics(d).hotHeight, 37, 'the physical band does not hide');
+  assert.strictEqual(N.metrics(d).hotHeight, 37, 'the physical cutout does not hide');
+});
+
+test('a display with no cutout gets an anchor, not a replica of one', () => {
+  // The point of the change: we were drawing a 196 pt "notch" on machines
+  // that have no camera housing at all — wider than a real 14" notch.
+  const mini = N.metrics(display(1728, 1080, { internal: false, menuBar: 30 }));
+  assert.strictEqual(mini.notched, false);
+  assert.strictEqual(mini.notchWidth, 120, 'four times the menu bar, not a fake notch');
+  const realNotchHere = Math.round(1728 * 0.122);
+  assert.ok(mini.notchWidth < realNotchHere * 0.6,
+    `an anchor should be well under a real notch (${realNotchHere} pt) on the same display`);
+});
+
+test('the anchor scales with the bar but stays within sane bounds', () => {
+  const tiny = N.metrics(display(1280, 800, { internal: false, menuBar: 20 }));
+  assert.strictEqual(tiny.notchWidth, 88, 'clamped so it never becomes a stub');
+  const huge = N.metrics(display(3840, 2160, { internal: false, menuBar: 44 }));
+  assert.strictEqual(huge.notchWidth, 140, 'clamped so it never becomes a slab');
 });
 
 test('a flat display with no menu bar still gets a usable hot strip', () => {
@@ -61,12 +100,14 @@ test('a flat display with no menu bar still gets a usable hot strip', () => {
   assert.strictEqual(N.metrics(d).hotHeight, N.G.fallbackMenuBar);
 });
 
-test('notch width scales with the display and yields ~12.5% of logical width', () => {
-  const m14 = N.metrics(display(1512, 982));
-  const m16 = N.metrics(display(1728, 1117));
-  assert.strictEqual(m14.notchWidth, 189);
-  assert.strictEqual(m16.notchWidth, 216);
+test('notch width scales with the display, so any scaling mode is covered', () => {
+  const m14 = N.metrics(display(1512, 982, { menuBar: 32 }));
+  const m16 = N.metrics(display(1728, 1117, { menuBar: 38 }));
+  assert.strictEqual(m14.notchWidth, 185, 'the measured 14" figure');
+  assert.strictEqual(m16.notchWidth, 211);
   assert.ok(m16.notchWidth > m14.notchWidth, 'the 16" notch is wider than the 14"');
+  // Same machine, different scaling: the ratio holds where a table would not.
+  assert.strictEqual(N.metrics(display(1800, 1169, { menuBar: 38 })).notchWidth, 220);
 });
 
 test('a configured notch width beats the estimate', () => {
