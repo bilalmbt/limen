@@ -811,25 +811,23 @@ async function primeNow() {
   }
 }
 
-/** Set the automatic time from the menu, so this is not a config-file feature. */
-function setPrimeTime(time) {
-  config.primeAt = time ? [time] : [];
-  saveConfig({ primeAt: config.primeAt });
-  trace(time ? `priming scheduled for ${time}` : 'priming switched off');
-  buildMenu(true);
-  pushUsage();
-}
-
-function setPrimeChain(on) {
-  config.primeChain = on === true;
-  saveConfig({ primeChain: config.primeChain });
+/**
+ * The whole auto-open choice, applied as one value: off, a time, or chain.
+ * Held as two settings it could land half-applied — a time selected while
+ * chain stayed on, where chain then wins and the click looks ignored.
+ */
+function setPrimeMode(mode) {
+  const { chain, times } = prime.resolveMode(mode);
+  config.primeChain = chain;
+  config.primeAt = times;
+  saveConfig({ primeChain: chain, primeAt: times });
   primeFailUntil = 0;
-  trace(config.primeChain
-    ? 'chain priming on: a new window will open whenever none is running'
-    : 'chain priming off');
+  trace(chain ? 'auto-open: whenever the current window ends'
+    : times.length ? `auto-open: ${times[0]}`
+    : 'auto-open: off');
   buildMenu(true);
   pushUsage();
-  if (config.primeChain) checkPrime();
+  if (chain || times.length) checkPrime();
 }
 
 function setPrimeWeekdays(weekdaysOnly) {
@@ -1007,13 +1005,13 @@ function buildMenu(force = false) {
           label: t || 'Never',
           type: 'radio',
           checked: !config.primeChain && (config.primeAt[0] || '') === t,
-          click: () => { setPrimeChain(false); setPrimeTime(t); }
+          click: () => setPrimeMode(t)
         })),
         {
           label: 'Whenever the current one ends',
           type: 'radio',
           checked: config.primeChain,
-          click: () => setPrimeChain(true)
+          click: () => setPrimeMode('chain')
         },
         { type: 'separator' },
         {
@@ -1363,13 +1361,8 @@ function ensureTallEnough() {
 
 ipcMain.on('island-action', (e, name, value) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
-  if (name === 'prime-at') {
-    // Only a time we offer, or nothing. The renderer is trusted, but a
-    // value that reaches execFile deserves the check anyway.
-    const t = prime.parseTime(value) !== null ? String(value) : '';
-    setPrimeTime(t);
-  } else if (name === 'prime-chain') {
-    setPrimeChain(value === true);
+  if (name === 'prime-mode') {
+    setPrimeMode(value);
   } else if (name === 'refresh') {
     refresh('button', true);
   } else if (name === 'sign-in') {

@@ -83,6 +83,22 @@ function nextSlot({ times, days, weekday, minutesNow }) {
   return null;
 }
 
+/**
+ * One control, one value. The auto-open setting is a single choice — off, a
+ * time, or chain — so it is set as one, not as two messages that have to
+ * agree. Two settings meant a click could land half-applied.
+ *
+ * @param {string} mode  "" | "HH:MM" | "chain"
+ * @returns {{chain: boolean, times: string[]}}
+ */
+function resolveMode(mode) {
+  const text = String(mode == null ? '' : mode);
+  if (text === 'chain') return { chain: true, times: [] };
+  return parseTime(text) !== null
+    ? { chain: false, times: [text] }
+    : { chain: false, times: [] };
+}
+
 /** 480 -> "08:00", for display. */
 function formatSlot(minutes) {
   if (!Number.isFinite(minutes)) return '';
@@ -91,4 +107,6 @@ function formatSlot(minutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-module.exports = { parseTime, slotsFor, dueSlot, nextSlot, formatSlot, DEFAULT_GRACE_MIN };
+module.exports = {
+  parseTime, slotsFor, dueSlot, nextSlot, formatSlot, resolveMode, DEFAULT_GRACE_MIN
+};

@@ -464,13 +464,12 @@ function renderPrimeBar(p) {
         ? 'Open a new window as soon as the current one ends'
         : label === 'Off' ? 'Never open a window automatically'
         : `Open a window at ${label} on the days you chose`;
-      b.addEventListener('click', () => {
-        if (label === 'Chain') window.island.act('prime-chain', !p.chain);
-        else {
-          if (p.chain) window.island.act('prime-chain', false);
-          window.island.act('prime-at', label === 'Off' ? '' : label);
-        }
-      });
+      // One message carrying the whole choice. The handler must NOT close
+      // over the current settings: these buttons are built once and reused,
+      // so a captured value goes stale on the very first change — which is
+      // why every click used to re-assert whatever was true at startup.
+      const mode = label === 'Chain' ? 'chain' : label === 'Off' ? '' : label;
+      b.addEventListener('click', () => window.island.act('prime-mode', mode));
       chips.appendChild(b);
     }
   }

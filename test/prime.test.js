@@ -87,6 +87,18 @@ test('the next slot is reported for display', () => {
   assert.strictEqual(P.nextSlot({ times: [], days: WEEKDAYS, weekday: 3, minutesNow: 0 }), null);
 });
 
+test('the auto-open setting is one value, so a click cannot half-apply', () => {
+  assert.deepStrictEqual(P.resolveMode('chain'), { chain: true, times: [] });
+  assert.deepStrictEqual(P.resolveMode('08:00'), { chain: false, times: ['08:00'] });
+  assert.deepStrictEqual(P.resolveMode(''), { chain: false, times: [] });
+  // Choosing a time must turn chain OFF in the same breath — as two separate
+  // settings, a stale value could leave both on and chain would win.
+  assert.strictEqual(P.resolveMode('09:00').chain, false);
+  assert.deepStrictEqual(P.resolveMode('nonsense'), { chain: false, times: [] });
+  assert.deepStrictEqual(P.resolveMode(null), { chain: false, times: [] });
+  assert.deepStrictEqual(P.resolveMode(undefined), { chain: false, times: [] });
+});
+
 test('slots are shown the way they were written', () => {
   assert.strictEqual(P.formatSlot(480), '08:00');
   assert.strictEqual(P.formatSlot(785), '13:05');
