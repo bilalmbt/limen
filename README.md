@@ -33,7 +33,7 @@ Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
 
 ```bash
 npm install
-npm test        # 161 tests, no Electron needed
+npm test        # 170 tests, no Electron needed
 npm start       # the island, on your notch (or top-center of a flat display)
 ```
 
@@ -242,7 +242,7 @@ applies changes without a restart.
 
 ## What is verified
 
-`npm test` runs 161 tests across the places where a mistake shows up
+`npm test` runs 170 tests across the places where a mistake shows up
 immediately:
 
 - **Notch geometry, 24 tests** — the aspect rule against nine real display
@@ -257,16 +257,17 @@ immediately:
   voids a rate rather than reporting a negative one.
 - **Wording and tones, 25 tests** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
-- **The data layer, 39 tests** — normalization (a missing quota never becomes
-  a displayed zero), the one gate every fetch passes, the alert ledger,
-  persisted state.
+- **The data layer, 47 tests** — normalization (a missing quota never becomes
+  a displayed zero), the one gate every fetch passes, the alert ledger —
+  once per level per window, pace warnings included, and a pause that skips
+  rather than holds — and persisted state.
 - **Settings and priming, 33 tests** — a hand-edited file that cannot break
   the app, the wingCount migration, the band's source rules (canonical order,
   a cap of three, never empty), and the auto-open schedule.
 
 ## What is verified, and how
 
-`npm test` runs **161 tests** over the pure modules — notch geometry, the
+`npm test` runs **170 tests** over the pure modules — notch geometry, the
 state machine, burn rate, wording and tones, quota normalization, backoff,
 alerts, persisted state. Three runtime checks complement them, because unit
 tests cannot see pixels:

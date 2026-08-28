@@ -548,37 +548,21 @@ async function refresh(cause = 'schedule', force = false) {
  * OS notification. Same ledger for both, so nothing ever speaks twice.
  */
 function raiseAlerts(gauges, summary) {
-  const thresholds = Array.isArray(config.alertAt) ? config.alertAt : [];
-  if (!thresholds.length) return;
-
-  const { raise, ledger } = alerts.due(gauges, thresholds, alertLedger);
+  // What may be said, and the bookkeeping that makes it said once, both live
+  // in alerts.js — where the test suite can hold them. This function's job is
+  // only to hand over the settings and put the result on screen.
+  const { raise, ledger } = alerts.plan(gauges, {
+    thresholds: Array.isArray(config.alertAt) ? config.alertAt : [],
+    summary,
+    ledger: alertLedger,
+    silenced: alertsPausedUntil > Date.now()
+  });
   alertLedger = ledger;
-
-  // A threshold crossing is a LAGGING signal: it fires once you are already
-  // there. "You will run out before this window resets" is the leading one,
-  // and it rides the same ledger so it still speaks only once per window.
-  const paced = [];
-  for (const gauge of gauges || []) {
-    const t = summary && summary[gauge.id];
-    if (!t || !t.beforeReset || gauge.percent >= 90) continue;   // 90 has its own alert
-    const seen = alertLedger[`pace-${gauge.id}`];
-    if (seen && seen.window === (gauge.resetsAt || null)) continue;
-    alertLedger[`pace-${gauge.id}`] = { window: gauge.resetsAt || null, level: 'pace' };
-    paced.push({ gauge, level: 'pace', minutes: Math.round(t.exhaustsInMs / 60000) });
-  }
-
-  // A pause SKIPS; it does not defer. Returning before the ledger ran meant a
-  // crossing during the pause was never recorded as spoken, so it peeked the
-  // moment the pause lapsed — news forty minutes old, arriving as an
-  // interruption, from a control asked for silence. The ledger above has now
-  // recorded these, so nothing replays. What was missed stays missed, and
-  // the wings and the panel carry the number the instant you look.
-  if (alertsPausedUntil > Date.now()) return;
 
   // Queue them: raising two in one poll used to overwrite the first peek
   // while the ledger had already recorded it as spoken, so it was never
   // shown at all. Session and weekly crossing together is the normal case.
-  for (const item of [...raise, ...paced]) queuePeek(item);
+  for (const item of raise) queuePeek(item);
 }
 
 /**

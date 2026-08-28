@@ -11,6 +11,15 @@
  * island these alerts drive the peek state first, notifications second.
  */
 
+/**
+ * A gauge's pace alert is remembered under its own key, so "you crossed 80"
+ * and "you will run out first" are independent once-per-window promises.
+ */
+const paceKey = (id) => `pace-${id}`;
+
+/** Above this the crit threshold owns the warning, and pace would repeat it. */
+const PACE_CEILING = 90;
+
 /** @returns {{gauge, level}[]} the alerts to raise now, and the new ledger. */
 function due(gauges, thresholds, ledger) {
   const levels = [...(thresholds || [])].sort((a, b) => b - a);
@@ -29,11 +38,57 @@ function due(gauges, thresholds, ledger) {
     raise.push({ gauge, level: crossed });
   }
 
-  // Forget gauges the account no longer exposes, so the ledger cannot grow forever.
+  // Forget gauges the account no longer exposes, so the ledger cannot grow
+  // forever — but read a pace key as the gauge it belongs to. Pruning by bare
+  // id deleted every pace entry on every poll, which re-armed the pace alert
+  // each time: "once per window" became once every two minutes.
   const alive = new Set((gauges || []).map((g) => g.id));
-  for (const id of Object.keys(next)) if (!alive.has(id)) delete next[id];
+  for (const key of Object.keys(next)) {
+    const id = key.startsWith('pace-') ? key.slice('pace-'.length) : key;
+    if (!alive.has(id)) delete next[key];
+  }
 
   return { raise, ledger: next };
 }
 
-module.exports = { due };
+/**
+ * Everything the island is entitled to say this poll, and the ledger that
+ * makes it say each thing once.
+ *
+ * Two kinds ride the same ledger. A threshold crossing is a LAGGING signal —
+ * it fires once you are already there. "You will run out before this window
+ * resets" is the leading one, and it stays quiet above PACE_CEILING because
+ * the crit threshold is already saying it.
+ *
+ * `silenced` is a pause, and a pause SKIPS rather than defers. The ledger
+ * still advances, so what was missed stays missed: returning before the
+ * bookkeeping meant a crossing during a pause peeked the moment the pause
+ * lapsed — news an hour old, arriving as an interruption, from the one
+ * control asked for silence. The wings and the panel carry the number the
+ * instant anyone looks.
+ *
+ * @param {{thresholds?: number[], summary?: object, ledger?: object, silenced?: boolean}} options
+ * @returns {{raise: object[], ledger: object}}
+ */
+function plan(gauges, options) {
+  const { thresholds = [], summary = null, ledger = {}, silenced = false } = options || {};
+  // No thresholds is the config's way of saying "never interrupt me", and it
+  // covers the pace warning too — it is the same interruption.
+  if (!thresholds.length) return { raise: [], ledger };
+
+  const { raise, ledger: next } = due(gauges, thresholds, ledger);
+
+  const paced = [];
+  for (const gauge of gauges || []) {
+    const t = summary && summary[gauge.id];
+    if (!t || !t.beforeReset || gauge.percent >= PACE_CEILING) continue;
+    const seen = next[paceKey(gauge.id)];
+    if (seen && seen.window === (gauge.resetsAt || null)) continue;
+    next[paceKey(gauge.id)] = { window: gauge.resetsAt || null, level: 'pace' };
+    paced.push({ gauge, level: 'pace', minutes: Math.round(t.exhaustsInMs / 60000) });
+  }
+
+  return { raise: silenced ? [] : [...raise, ...paced], ledger: next };
+}
+
+module.exports = { due, plan, PACE_CEILING };
