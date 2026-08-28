@@ -1,0 +1,340 @@
+/* The island: black glass under a black notch. The window is transparent and
+   click-through; everything here is paint, nothing is a control. */
+
+:root {
+  --hot-h: 37px;      /* notch band height, set from geometry */
+  --notch-w: 189px;   /* notch width, set from geometry */
+  --panel-w: 400px;   /* expanded panel width, set from geometry */
+  --ink: #F2F2F5;
+  --ink-dim: rgba(255, 255, 255, 0.55);
+  --ink-faint: rgba(255, 255, 255, 0.38);
+  --glass: #0A0A0C;
+  --edge: rgba(255, 255, 255, 0.07);
+  --track: rgba(255, 255, 255, 0.13);
+  --ok: #30D158;
+  --warn: #FFD60A;
+  --hot: #FF9F0A;
+  --crit: #FF453A;
+  --accent: #E1815F;
+
+  /* ---- motion ----
+     A real damped spring (ζ≈0.68, ~5% overshoot), sampled as linear() stops,
+     because the island should arrive with mass rather than ease into place.
+     Exit is a different motion on purpose: quicker and fully damped — an
+     overshoot on the way out reads as indecision. Content resolves on a calm
+     curve while the container springs; one spring per moment is the rule. */
+  --spring: linear(0, 0.0988, 0.309, 0.5382, 0.7363, 0.8835, 0.9788, 1.0309,
+                   1.0517, 1.0531, 1.0444, 1.032, 1.0201, 1.0105, 1.0038,
+                   0.9997, 0.9977, 0.998, 0.9989, 0.9997, 1);
+  --spring-ms: 440ms;
+  --exit: cubic-bezier(0.4, 0, 0.9, 0.62);
+  --exit-ms: 190ms;
+  --calm: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#stage { position: relative; width: 100vw; height: 100vh; }
+
+/* ---- the anchor drawn on displays that have no real notch ---- */
+#fakenotch {
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: var(--notch-w);
+  height: var(--hot-h);
+  background: #000;
+  border-radius: 0 0 11px 11px;
+  transition: opacity 0.25s ease;
+}
+/* A side a wing joins loses its rounding: the band continues, so a curved
+   corner there would read as a bite out of one continuous shape. */
+#fakenotch.join-left { border-bottom-left-radius: 0; }
+#fakenotch.join-right { border-bottom-right-radius: 0; }
+
+/* ---- ambient wings: black chips flanking the notch, satellites of the
+        island. Each chip is the FULL height of the notch band, flush with
+        the top edge and rounded only at the bottom — the same silhouette as
+        the notch, so the trio reads as one split surface. The tag says what
+        the number means. ---- */
+/* Above the panel: its top edge tucks under the band, and the band's text
+   must never be clipped by the panel surface sliding beneath it. */
+#wings { position: absolute; top: 0; left: 0; right: 0; height: var(--hot-h); z-index: 5; }
+.wing {
+  position: absolute;
+  top: 0;
+  height: var(--hot-h);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  /* No rim: the notch has none, and a band must be one uniform black. */
+  background: #000;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #FFFFFF;
+  white-space: nowrap;
+  /* The corners morph with the panel rather than snapping square. */
+  transition: opacity 0.25s ease, border-radius var(--spring-ms) var(--spring);
+}
+.wing .tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+}
+.wing .ring { width: 14px; height: 14px; }
+/* Flush against the notch: the inner corner is square and tucks 2px under
+   the notch edge, so a slightly-off width estimate can never open a seam.
+   Only the outer corner keeps the notch's rounding — one continuous shape. */
+.wing.left {
+  right: calc(50% + var(--notch-w) / 2 - 2px);
+  border-radius: 0 0 0 11px;
+}
+.wing.right {
+  left: calc(50% + var(--notch-w) / 2 - 2px);
+  border-radius: 0 0 11px 0;
+}
+.wing.empty { display: none; }
+#wings.merged .wing.left { border-bottom-left-radius: 0; }
+#wings.merged .wing.right { border-bottom-right-radius: 0; }
+
+/* ---- rings: a conic gauge with a truly punched-out center (mask, not
+        paint, so the menu bar shows through the hole of a wing ring) ---- */
+.ring {
+  --p: 0;
+  --tone: var(--ok);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: conic-gradient(var(--tone) calc(var(--p) * 1%), rgba(255, 255, 255, 0.22) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+  flex: none;
+}
+.ring.big { width: 16px; height: 16px; }
+
+/* ---- shared island surface ---- */
+#peek, #panel {
+  position: absolute;
+  left: 50%;
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  border-top: none;
+  /* Scaled from the top edge: the island unfurls out of the notch rather
+     than zooming toward the viewer. */
+  transform-origin: top center;
+  will-change: transform, opacity;
+  /* The closed state's transition — i.e. the exit. */
+  transition:
+    opacity var(--exit-ms) var(--exit),
+    transform var(--exit-ms) var(--exit),
+    box-shadow var(--exit-ms) var(--exit);
+}
+/* The open state overrides it: entrance rides the spring, and the shadow
+   deepens with the morph so the surface reads as lifting off the desktop. */
+#peek:not(.off), #panel:not(.off) {
+  transition:
+    opacity 150ms ease-out,
+    transform var(--spring-ms) var(--spring),
+    box-shadow var(--spring-ms) var(--spring);
+}
+.off { opacity: 0; pointer-events: none; }
+
+/* scaleY leads scaleX: it unfurls downward, it does not inflate. */
+#peek.off {
+  transform: translateX(-50%) translateY(-10px) scaleY(0.82) scaleX(0.94);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+}
+#peek:not(.off) {
+  transform: translateX(-50%) translateY(0) scale(1);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+/* The panel is positioned by measurement (left/width set from the band's
+   real edges), so its morph never carries a translateX. */
+#panel.off {
+  transform: translateY(-12px) scaleY(0.84) scaleX(0.965);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+}
+#panel:not(.off) {
+  transform: translateY(0) scale(1);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+#fakenotch.off, #wings .wing.off, #wings.off .wing { opacity: 0; }
+
+/* ---- content resolves after the surface arrives ---- */
+@keyframes islandContentIn {
+  from { opacity: 0; transform: translateY(-7px); }
+  to { opacity: 1; transform: none; }
+}
+#panel.entering .head,
+#panel.entering #stale,
+#panel.entering .row,
+#panel.entering .empty-note,
+#panel.entering .btn {
+  animation: islandContentIn 360ms var(--calm) both;
+}
+#panel.entering .head { animation-delay: 40ms; }
+#panel.entering #stale { animation-delay: 75ms; }
+#panel.entering .empty-note { animation-delay: 90ms; }
+#panel.entering .btn { animation-delay: 170ms; }
+#panel.entering .row { animation-delay: calc(85ms + var(--i, 0) * 55ms); }
+
+@media (prefers-reduced-motion: reduce) {
+  #peek, #panel, .wing, #fakenotch, .bar > i { transition: opacity 0.1s linear; }
+  #peek.off, #peek:not(.off) { transform: translateX(-50%); }
+  #panel.off, #panel:not(.off) { transform: none; }
+  #panel.entering .head, #panel.entering #stale, #panel.entering .row,
+  #panel.entering .empty-note, #panel.entering .btn { animation: none; }
+}
+
+/* ---- peek: one line, event-driven ---- */
+#peek {
+  top: calc(var(--hot-h) - 8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 11px;
+  border-radius: 0 0 18px 18px;
+  white-space: nowrap;
+}
+.peek-title { font-size: 12.5px; font-weight: 600; }
+.peek-sub { font-size: 10px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+/* ---- panel: every gauge ---- */
+#panel {
+  top: calc(var(--hot-h) - 10px);
+  width: var(--panel-w);
+  padding: 22px 20px 16px;
+  border-radius: 0 0 22px 22px;
+}
+.head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.star { color: var(--accent); font-size: 13px; }
+.title { font-size: 13px; font-weight: 700; }
+.when {
+  margin-left: auto;
+  font-size: 9.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#stale {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  font-size: 9.5px;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
+}
+#stale.off { display: none; }
+#stale .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
+
+.row { margin-bottom: 12px; }
+.row:last-child { margin-bottom: 2px; }
+.row-head { display: flex; align-items: baseline; margin-bottom: 5px; }
+.row-name { font-size: 11.5px; font-weight: 600; }
+.badge {
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--hot);
+  color: var(--hot);
+  border-radius: 99px;
+  padding: 1px 6px;
+  margin-left: 7px;
+  vertical-align: 1px;
+}
+.row-reset {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.bar {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--track);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+/* Width, not scaleX: scaling would squash the rounded cap. The bar grows
+   into place on entrance, and glides between values when a refresh lands,
+   so a quota ticking up is a movement rather than a jump. */
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 720ms var(--calm), background-color 420ms ease;
+}
+.row-pct { font-size: 9px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+.tone-ok { background: var(--ok); }
+.tone-warn { background: var(--warn); }
+.tone-hot { background: var(--hot); }
+.tone-crit { background: var(--crit); }
+
+#panel.stale .row { opacity: 0.72; }
+
+/* What a full bar means on this account, when it isn't "you are stopped". */
+#ceiling {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--edge);
+  font-size: 9.5px;
+  color: var(--ink-dim);
+}
+#ceiling.off { display: none; }
+
+/* the empty island: no gauges yet, or no session found */
+.empty-note {
+  font-size: 11px;
+  color: var(--ink-dim);
+  padding: 4px 0 2px;
+}
+/* ---- the island's own controls ---- */
+.iconbtn {
+  margin-left: 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+.iconbtn:hover { color: var(--ink); }
+/* The control answers the click itself, before the data comes back. */
+@keyframes iconSpin { to { transform: rotate(360deg); } }
+.iconbtn.spinning { animation: iconSpin 680ms var(--calm); }
+.btn {
+  display: inline-block;
+  margin: 8px 0 4px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 99px;
+  background: rgba(225, 129, 95, 0.12);
+  cursor: pointer;
+  transition: background-color 160ms ease, transform 160ms var(--calm);
+}
+.btn:hover { background: rgba(225, 129, 95, 0.22); }
+.btn:active { transform: scale(0.97); }
+.btn[disabled] { opacity: 0.5; cursor: default; }
+#peek { cursor: pointer; }

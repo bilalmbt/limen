@@ -1,0 +1,28 @@
+{
+  "name": "claude-island",
+  "version": "0.1.0",
+  "description": "Your Claude usage limits in the MacBook notch: a Dynamic Island that is invisible until you glance at it.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo",
+    "usage": "node src/usage.js",
+    "spike": "electron src/spike.js",
+    "test": "node test/notch.test.js && node test/island-state.test.js && node test/viewmodel.test.js && node test/usage.test.js && node test/schedule.test.js && node test/alerts.test.js && node test/state.test.js"
+  },
+  "author": "bmo.dev",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0"
+  },
+  "build": {
+    "appId": "com.claudeisland.widget",
+    "productName": "Claude Island",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "extendInfo": {
+        "LSUIElement": 1
+      }
+    }
+  }
+}

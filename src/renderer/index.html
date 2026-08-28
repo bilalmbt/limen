@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'">
+  <title>Claude Island</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <div id="fakenotch" class="off" aria-hidden="true"></div>
+
+    <div id="wings" class="off">
+      <div class="wing left"><span class="tag"></span><span class="ring"></span><span class="pct"></span></div>
+      <div class="wing right"><span class="tag"></span><span class="ring"></span><span class="pct"></span></div>
+    </div>
+
+    <div id="peek" class="off">
+      <span class="ring big"></span>
+      <div class="peek-text">
+        <div class="peek-title"></div>
+        <div class="peek-sub"></div>
+      </div>
+    </div>
+
+    <div id="panel" class="off">
+      <div class="head">
+        <span class="star">&#10033;</span>
+        <span class="title">Claude</span>
+        <span class="when"></span>
+        <button class="iconbtn" id="refresh-btn" title="Refresh now">&#8635;</button>
+      </div>
+      <div id="stale" class="off"><span class="dot"></span><span class="stale-text"></span></div>
+      <div id="rows"></div>
+      <div id="ceiling" class="off"></div>
+    </div>
+  </div>
+  <script src="../viewmodel.js"></script>
+  <script src="island.js"></script>
+</body>
+</html>
