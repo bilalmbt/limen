@@ -99,6 +99,47 @@ test('the auto-open setting is one value, so a click cannot half-apply', () => {
   assert.deepStrictEqual(P.resolveMode(undefined), { chain: false, times: [] });
 });
 
+test('"at" keeps the time already chosen, and only defaults when there is none', () => {
+  assert.deepStrictEqual(P.resolveMode('at', ['06:30']), { chain: false, times: ['06:30'] },
+    'switching to chain and back must not forget the time');
+  assert.deepStrictEqual(P.resolveMode('at', []), { chain: false, times: ['08:00'] });
+  assert.deepStrictEqual(P.resolveMode('at', ['nonsense']), { chain: false, times: ['08:00'] });
+});
+
+test('stepping a time wraps instead of stopping at the ends', () => {
+  assert.strictEqual(P.stepTime('08:00', 'h', 1), '09:00');
+  assert.strictEqual(P.stepTime('08:00', 'h', -1), '07:00');
+  assert.strictEqual(P.stepTime('08:00', 'm', 1), '08:15');
+  assert.strictEqual(P.stepTime('08:45', 'm', 1), '09:00', 'minutes carry into the hour');
+  assert.strictEqual(P.stepTime('00:00', 'm', -1), '23:45', 'and wrap backwards over midnight');
+  assert.strictEqual(P.stepTime('23:00', 'h', 1), '00:00');
+  assert.strictEqual(P.stepTime('00:00', 'h', -1), '23:00');
+});
+
+test('a corrupt time steps to a sane one rather than propagating', () => {
+  assert.strictEqual(P.stepTime('nonsense', 'h', 1), '08:00');
+  assert.strictEqual(P.stepTime('08:00', 'h', NaN), '08:00');
+});
+
+test('days toggle individually and stay sorted', () => {
+  assert.deepStrictEqual(P.toggleDay([1, 2, 3, 4, 5], 6), [1, 2, 3, 4, 5, 6]);
+  assert.deepStrictEqual(P.toggleDay([1, 2, 3, 4, 5], 3), [1, 2, 4, 5]);
+  assert.deepStrictEqual(P.toggleDay([5, 1, 3], 0), [0, 1, 3, 5], 'order must not depend on click order');
+  assert.deepStrictEqual(P.toggleDay([], 0), [0]);
+  assert.deepStrictEqual(P.toggleDay([0], 0), [], 'every day may be turned off');
+});
+
+test('a day outside the week is ignored, not stored', () => {
+  assert.deepStrictEqual(P.toggleDay([1, 2], 9), [1, 2]);
+  assert.deepStrictEqual(P.toggleDay([1, 2], -1), [1, 2]);
+  assert.deepStrictEqual(P.toggleDay([1, 2], 'x'), [1, 2]);
+});
+
+test('with no days selected, nothing ever fires', () => {
+  assert.strictEqual(P.dueSlot({ ...base, days: [2] }), null,
+    'Wednesday is not in the list, so the slot must not fire');
+});
+
 test('slots are shown the way they were written', () => {
   assert.strictEqual(P.formatSlot(480), '08:00');
   assert.strictEqual(P.formatSlot(785), '13:05');

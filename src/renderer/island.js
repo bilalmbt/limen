@@ -453,41 +453,68 @@ function fillRow(row, gauge, thresholds) {
  * there means reopening the menu to see the result or change your mind.
  * This is our own window, so a chip can toggle and stay put.
  */
-const PRIME_TIMES = ['07:00', '08:00', '09:00', '10:00'];
+const MODES = [
+  ['', 'Off', 'Never open a window automatically'],
+  ['at', 'At', 'Open a window at a time you choose'],
+  ['chain', 'Chain', 'Open a new window as soon as the current one ends']
+];
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Every handler here closes over a CONSTANT (its own mode, field or day
+ * index) and never over the current settings — buttons are built once and
+ * reused, so a captured setting goes stale on the first change.
+ */
+function buildPrimeBar(bar) {
+  const modes = bar.querySelector('.chips.mode');
+  for (const [value, label, title] of MODES) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.mode = value;
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', () => window.island.act('prime-mode', value));
+    modes.appendChild(b);
+  }
+  for (const btn of bar.querySelectorAll('.step')) {
+    const field = btn.dataset.field;
+    const delta = Number(btn.dataset.delta);
+    btn.addEventListener('click', () => window.island.act('prime-step', { field, delta }));
+  }
+  const days = bar.querySelector('.chips.days');
+  DAY_LETTERS.forEach((letter, index) => {
+    const b = document.createElement('button');
+    b.className = 'chip day';
+    b.dataset.day = String(index);
+    b.textContent = letter;
+    b.title = DAY_NAMES[index];
+    b.addEventListener('click', () => window.island.act('prime-day', index));
+    days.appendChild(b);
+  });
+}
+
 function renderPrimeBar(p) {
   const bar = $('#primebar');
   bar.classList.toggle('off', !p);
   if (!p) return;
-  const chips = bar.querySelector('.chips');
-  const want = ['Off', ...PRIME_TIMES, 'Chain'];
-  if (chips.children.length !== want.length) {
-    chips.textContent = '';
-    for (const label of want) {
-      const b = document.createElement('button');
-      b.className = 'chip';
-      b.dataset.value = label;
-      b.textContent = label === 'Off' ? 'Off'
-        : label === 'Chain' ? 'Chain'
-        : label.slice(0, 2);
-      b.title = label === 'Chain'
-        ? 'Open a new window as soon as the current one ends'
-        : label === 'Off' ? 'Never open a window automatically'
-        : `Open a window at ${label} on the days you chose`;
-      // One message carrying the whole choice. The handler must NOT close
-      // over the current settings: these buttons are built once and reused,
-      // so a captured value goes stale on the very first change — which is
-      // why every click used to re-assert whatever was true at startup.
-      const mode = label === 'Chain' ? 'chain' : label === 'Off' ? '' : label;
-      b.addEventListener('click', () => window.island.act('prime-mode', mode));
-      chips.appendChild(b);
-    }
+  if (!bar.dataset.built) { buildPrimeBar(bar); bar.dataset.built = '1'; }
+
+  const mode = p.chain ? 'chain' : p.at ? 'at' : '';
+  for (const b of bar.querySelectorAll('.chips.mode .chip')) {
+    b.classList.toggle('on', b.dataset.mode === mode);
   }
-  for (const b of chips.children) {
-    const v = b.dataset.value;
-    const on = v === 'Chain' ? p.chain
-      : v === 'Off' ? (!p.chain && !p.at)
-      : (!p.chain && p.at === v);
-    b.classList.toggle('on', on);
+  // Time and days only matter for a scheduled open, so they only appear
+  // then — the panel does not carry controls that cannot do anything.
+  for (const row of bar.querySelectorAll('.prow.detail')) {
+    row.classList.toggle('off', mode !== 'at');
+  }
+  if (mode !== 'at') return;
+
+  bar.querySelector('.clock').textContent = p.at || '08:00';
+  const days = Array.isArray(p.days) ? p.days : [];
+  for (const b of bar.querySelectorAll('.chips.days .chip')) {
+    b.classList.toggle('on', days.includes(Number(b.dataset.day)));
   }
 }
 

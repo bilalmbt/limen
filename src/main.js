@@ -503,6 +503,7 @@ async function refresh(cause = 'schedule', force = false) {
     lastData.canPrime = data.ok && !sessionOpen();
     lastData.prime = {
       at: config.primeAt[0] || '',
+      days: config.primeDays,
       chain: config.primeChain,
       model: config.primeModel
     };
@@ -784,7 +785,7 @@ async function primeNow() {
  * chain stayed on, where chain then wins and the click looks ignored.
  */
 function setPrimeMode(mode) {
-  const { chain, times } = prime.resolveMode(mode);
+  const { chain, times } = prime.resolveMode(mode, config.primeAt);
   config.primeChain = chain;
   config.primeAt = times;
   saveConfig({ primeChain: chain, primeAt: times });
@@ -797,9 +798,24 @@ function setPrimeMode(mode) {
   if (chain || times.length) checkPrime();
 }
 
-function setPrimeWeekdays(weekdaysOnly) {
-  config.primeDays = weekdaysOnly ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
-  saveConfig({ primeDays: config.primeDays });
+/** A nudged time. Changing it re-arms today's slot, so a time you just moved
+    to can still fire today rather than waiting until tomorrow. */
+function setPrimeTimeValue(time) {
+  config.primeAt = [time];
+  config.primeChain = false;
+  lastPrime = { day: null, slot: null };
+  saveConfig({ primeAt: config.primeAt, primeChain: false });
+  store.save({ lastPrime });
+  trace(`auto-open: ${time}`);
+  buildMenu(true);
+  pushUsage();
+  checkPrime();
+}
+
+function setPrimeDays(days) {
+  config.primeDays = days;
+  saveConfig({ primeDays: days });
+  trace(`auto-open days: ${days.length ? days.join(',') : 'none'}`);
   buildMenu(true);
   pushUsage();
 }
@@ -810,6 +826,7 @@ function pushUsage() {
   lastData.canPrime = Boolean(lastData.ok) && !sessionOpen();
   lastData.prime = {
     at: config.primeAt[0] || '',
+    days: config.primeDays,
     chain: config.primeChain,
     model: config.primeModel
   };
@@ -967,26 +984,29 @@ function buildMenu(force = false) {
           click: () => primeNow()
         },
         { type: 'separator' },
-        { label: 'Open one automatically at', enabled: false },
-        ...['', '07:00', '08:00', '09:00', '10:00'].map((t) => ({
-          label: t || 'Never',
+        { label: 'Open one automatically', enabled: false },
+        {
+          label: 'Never',
           type: 'radio',
-          checked: !config.primeChain && (config.primeAt[0] || '') === t,
-          click: () => setPrimeMode(t)
-        })),
+          checked: !config.primeChain && !config.primeAt.length,
+          click: () => setPrimeMode('')
+        },
+        {
+          // The exact time and days are set in the panel, where a stepper
+          // and seven day toggles fit. A menu that closes on every click is
+          // the wrong place to nudge a number.
+          label: config.primeAt.length
+            ? `At ${config.primeAt[0]}${daysLabel()}`
+            : 'At a time (choose it in the panel)',
+          type: 'radio',
+          checked: !config.primeChain && config.primeAt.length > 0,
+          click: () => setPrimeMode('at')
+        },
         {
           label: 'Whenever the current one ends',
           type: 'radio',
           checked: config.primeChain,
           click: () => setPrimeMode('chain')
-        },
-        { type: 'separator' },
-        {
-          label: 'Weekdays only',
-          type: 'checkbox',
-          checked: config.primeDays.length === 5,
-          enabled: config.primeAt.length > 0 && !config.primeChain,
-          click: (item) => setPrimeWeekdays(item.checked)
         }
       ]
     },
@@ -1012,6 +1032,17 @@ function buildMenu(force = false) {
     { label: 'Restart the island', click: () => autostart.restart() },
     { label: 'Quit (until next login)', click: () => app.quit() }
   ]));
+}
+
+/** "weekdays" / "every day" / "Mon, Wed" — for the tray, which has no room. */
+function daysLabel() {
+  const d = [...(config.primeDays || [])].sort((a, b) => a - b);
+  if (!d.length) return ' — no days selected';
+  if (d.length === 7) return ' every day';
+  if (d.join() === '1,2,3,4,5') return ' on weekdays';
+  if (d.join() === '0,6') return ' at weekends';
+  const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return ` on ${d.map((i) => names[i]).join(', ')}`;
 }
 
 /** Open the panel deliberately — from the tray, or the keyboard. */
@@ -1151,7 +1182,7 @@ function playScene(scene) {
       gauges: FIXTURE.gauges.map((g) => g.id === 'session' ? { ...g, percent: 0 } : g),
       canPrime: true,
       primeNote: 'new window tomorrow 08:00',
-      prime: { at: '08:00', chain: false, model: 'haiku' }
+      prime: { at: '08:00', days: [1,2,3,4,5], chain: false, model: 'haiku' }
     });
     send('panel', true);
   } else if (scene === 'pace') {
@@ -1368,6 +1399,12 @@ ipcMain.on('island-action', (e, name, value) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
   if (name === 'prime-mode') {
     setPrimeMode(value);
+  } else if (name === 'prime-step') {
+    const field = value && value.field === 'm' ? 'm' : 'h';
+    const delta = value && Number(value.delta) < 0 ? -1 : 1;
+    setPrimeTimeValue(prime.stepTime(config.primeAt[0] || '08:00', field, delta));
+  } else if (name === 'prime-day') {
+    setPrimeDays(prime.toggleDay(config.primeDays, Number(value)));
   } else if (name === 'refresh') {
     refresh('button', true);
   } else if (name === 'sign-in') {

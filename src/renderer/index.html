@@ -35,8 +35,25 @@
       <div id="ceiling" class="off"></div>
       <div id="prime" class="off"></div>
       <div id="primebar" class="off">
-        <span class="lbl">Auto-open</span>
-        <span class="chips"></span>
+        <div class="prow">
+          <span class="lbl">Auto-open</span>
+          <span class="chips mode"></span>
+        </div>
+        <div class="prow detail">
+          <span class="lbl">Time</span>
+          <span class="stepper">
+            <button class="step" data-field="h" data-delta="-1" aria-label="Hour earlier">&minus;</button>
+            <span class="clock"></span>
+            <button class="step" data-field="h" data-delta="1" aria-label="Hour later">+</button>
+            <span class="sep">min</span>
+            <button class="step" data-field="m" data-delta="-1" aria-label="15 minutes earlier">&minus;</button>
+            <button class="step" data-field="m" data-delta="1" aria-label="15 minutes later">+</button>
+          </span>
+        </div>
+        <div class="prow detail">
+          <span class="lbl">Days</span>
+          <span class="chips days"></span>
+        </div>
       </div>
     </div>
   </div>

@@ -91,12 +91,42 @@ function nextSlot({ times, days, weekday, minutesNow }) {
  * @param {string} mode  "" | "HH:MM" | "chain"
  * @returns {{chain: boolean, times: string[]}}
  */
-function resolveMode(mode) {
+function resolveMode(mode, current = []) {
   const text = String(mode == null ? '' : mode);
   if (text === 'chain') return { chain: true, times: [] };
+  // "at" means "on, at whatever time is already chosen" — switching away to
+  // chain and back must not silently forget it.
+  if (text === 'at') {
+    const kept = (Array.isArray(current) ? current : []).filter((t) => parseTime(t) !== null);
+    return { chain: false, times: kept.length ? [kept[0]] : ['08:00'] };
+  }
   return parseTime(text) !== null
     ? { chain: false, times: [text] }
     : { chain: false, times: [] };
+}
+
+/**
+ * Nudge one field of a time, wrapping rather than clamping: reaching 07:00
+ * from 09:00 should be two clicks down, not a walk to midnight and back.
+ *
+ * @param {string} time   "HH:MM"
+ * @param {'h'|'m'} field
+ * @param {number} delta  steps; minutes move in quarter hours
+ */
+function stepTime(time, field, delta) {
+  const base = parseTime(time);
+  if (base === null || !Number.isFinite(delta)) return formatSlot(parseTime('08:00'));
+  const step = field === 'h' ? 60 : 15;
+  const next = (((base + delta * step) % 1440) + 1440) % 1440;
+  return formatSlot(next);
+}
+
+/** Turn one weekday on or off, kept sorted so the file reads the same way twice. */
+function toggleDay(days, day) {
+  if (!Number.isInteger(day) || day < 0 || day > 6) return [...(days || [])];
+  const set = new Set((days || []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6));
+  if (set.has(day)) set.delete(day); else set.add(day);
+  return [...set].sort((a, b) => a - b);
 }
 
 /** 480 -> "08:00", for display. */
@@ -108,5 +138,6 @@ function formatSlot(minutes) {
 }
 
 module.exports = {
-  parseTime, slotsFor, dueSlot, nextSlot, formatSlot, resolveMode, DEFAULT_GRACE_MIN
+  parseTime, slotsFor, dueSlot, nextSlot, formatSlot, resolveMode,
+  stepTime, toggleDay, DEFAULT_GRACE_MIN
 };

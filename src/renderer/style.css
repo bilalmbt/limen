@@ -414,17 +414,49 @@ html, body {
 /* Auto-open, in the panel: a native menu closes on every click, so setting a
    time there means reopening it to see the result. */
 #primebar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--edge);
 }
 #primebar.off { display: none; }
 #prime:not(.off) + #primebar { border-top: none; margin-top: 6px; padding-top: 0; }
+#primebar .prow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+#primebar .prow + .prow { margin-top: 4px; }
+#primebar .prow.off { display: none; }
 #primebar .lbl { font-size: var(--t-meta); color: var(--ink-faint); }
 #primebar .chips { display: flex; gap: 4px; margin-left: auto; }
+#primebar .stepper { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+#primebar .clock {
+  font-size: var(--t-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 46px;
+  text-align: center;
+}
+#primebar .sep { font-size: var(--t-meta); color: var(--ink-faint); margin-left: 6px; }
+#primebar .step {
+  font: inherit;
+  font-size: var(--t-body);
+  line-height: 1;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+#primebar .step:hover { background: rgba(255, 255, 255, 0.16); color: var(--ink); }
+#primebar .step:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* Day letters repeat (S M T W T F S), so they are squares of equal width —
+   ragged widths would make the week hard to read at a glance. */
+#primebar .chip.day { width: 22px; padding: 2px 0; text-align: center; }
 #primebar .chip {
   font: inherit;
   font-size: var(--t-meta);
