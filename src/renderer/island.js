@@ -61,6 +61,15 @@ setInterval(() => {
 $('#refresh-btn').addEventListener('click', () => window.island.act('refresh'));
 $('#peek').addEventListener('click', () => window.island.act('expand'));
 
+// A click anywhere on the band — the notch or either chip — opens the panel,
+// and closes it again. Handled by position rather than per-element so the
+// real notch, the drawn one and the wings all behave the same, including the
+// cutout where there is no element of ours to attach to.
+$('#stage').addEventListener('click', (e) => {
+  const band = (state.geometry && state.geometry.hotHeight) || 0;
+  if (e.clientY <= band) window.island.act('toggle');
+});
+
 /**
  * Replay the opening choreography: the surface springs out, then the rows
  * resolve in sequence and the bars grow into place. Rebuilding the rows is
@@ -107,29 +116,51 @@ function render() {
  * The wings are deliberately excluded. They sit in the menu-bar strip, and
  * taking the mouse there would intercept clicks meant for menu titles.
  */
+/**
+ * Where the island actually is, as a LIST of rectangles.
+ *
+ * Not a bounding box: with the wings off, one box around the notch and the
+ * wider panel below it would also cover the empty menu-bar strip either side
+ * of the notch — and clicks there belong to menu titles and status items.
+ * Each drawn thing reports its own rect, so the island takes the mouse over
+ * its own opaque pixels and nowhere else.
+ */
 function reportSurface() {
   const rects = [];
-  for (const el of [$('#panel'), $('#peek')]) {
-    if (!el || el.classList.contains('off')) continue;
+  const add = (el) => {
+    if (!el || el.classList.contains('off')) return;
     // offset* and NOT getBoundingClientRect(): the latter returns the
     // ANIMATED box, and this runs while the entry transform is still at
-    // scaleY(0.84) translateY(-12px). The reported surface was therefore
-    // the shrunken panel forever — so its bottom sixth, which is exactly
-    // where the buttons and the auto-open chips live, never took a click.
-    // Layout metrics ignore transforms and describe where it lands.
+    // scaleY(0.84) translateY(-12px). Layout metrics ignore transforms and
+    // describe where the thing lands.
     const left = el.offsetLeft;
     const top = el.offsetTop;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     if (w > 0 && h > 0) rects.push({ left, top, right: left + w, bottom: top + h });
+  };
+
+  add($('#panel'));
+  add($('#peek'));
+  add($('#fakenotch'));
+  const wings = $('#wings');
+  if (wings && !wings.classList.contains('off')) {
+    for (const wing of wings.querySelectorAll('.wing')) {
+      if (!wing.classList.contains('empty')) add(wing);
+    }
   }
-  if (!rects.length) return window.island.reportSurface(null);
-  window.island.reportSurface({
-    left: Math.min(...rects.map((r) => r.left)),
-    top: Math.min(...rects.map((r) => r.top)),
-    right: Math.max(...rects.map((r) => r.right)),
-    bottom: Math.max(...rects.map((r) => r.bottom))
-  });
+
+  // A real notch has no pixels of ours to draw on, and macOS puts nothing
+  // there either — so the cutout is always ours to accept a click on, which
+  // is what makes clicking it open the panel from a standing start.
+  const g = state.geometry;
+  if (g && g.notched) {
+    const half = g.notchWidth / 2;
+    const centre = document.documentElement.clientWidth / 2;
+    rects.push({ left: centre - half, top: 0, right: centre + half, bottom: g.hotHeight });
+  }
+
+  window.island.reportSurface(rects.length ? rects : null);
 }
 
 /** The drawn notch: only on displays that lack a real one, only when out.

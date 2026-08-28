@@ -32,6 +32,7 @@ function create() {
     state: DORMANT,
     wings: false,
     busy: false,      // a task is running IN the panel; it must not collapse
+    suppressHover: false,  // dismissed by click; deaf until the cursor leaves
     dwellSince: null,
     hideAt: null,
     peekUntil: null,
@@ -52,6 +53,13 @@ function tick(m, { inHot, inKeepAlive, now, moved = 0 }, t = T) {
   const next = { ...m };
 
   if (next.state === DORMANT) {
+    // Dismissed by a click while the cursor was still on the trigger: stay
+    // shut until the pointer has actually gone somewhere else.
+    if (next.suppressHover) {
+      if (!inHot) next.suppressHover = false;
+      next.dwellSince = null;
+      return { m: next, effects };
+    }
     if (inHot) {
       // Dwell on STILLNESS, not presence. The top-centre strip is the route
       // from the app menus to Control Center; a cursor crossing it at a
@@ -165,6 +173,31 @@ function promote(m) {
   return { m: next, effects: wasPeek ? ['unpeek', 'expand'] : ['expand'] };
 }
 
+/**
+ * A deliberate click on the band — the notch or a wing chip. Opens the
+ * panel, or closes it if it is already out, so the same target both reveals
+ * and dismisses rather than being a one-way door.
+ */
+function toggle(m, now = 0) {
+  if (m.state === EXPANDED) {
+    if (m.busy) return { m: { ...m }, effects: [] };   // a running task holds it
+    return {
+      m: {
+        ...m, state: DORMANT, dwellSince: null, hideAt: null,
+        // The click that closed it left the cursor sitting on the very thing
+        // that opens it, so hover would re-open on the next sample and the
+        // panel could never be dismissed. Hovering is deaf until the cursor
+        // leaves — and a deliberate close does not arm quick-return either,
+        // because "go away" should not be undone by a twitch.
+        suppressHover: true,
+        lastCollapseAt: null
+      },
+      effects: ['collapse']
+    };
+  }
+  return promote(m);
+}
+
 /** The global shortcut / tray checkbox: ambient wings on or off. */
 function toggleWings(m) {
   const next = { ...m, wings: !m.wings };
@@ -178,5 +211,5 @@ function windowVisible(m) {
 
 module.exports = {
   DORMANT, PEEK, EXPANDED, T,
-  create, tick, alert, mouseDown, promote, toggleWings, windowVisible
+  create, tick, alert, mouseDown, promote, toggle, toggleWings, windowVisible
 };

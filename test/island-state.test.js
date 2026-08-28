@@ -174,6 +174,53 @@ test('promoting the panel or a dormant island is safe', () => {
   assert.deepStrictEqual(already.effects, [], 'a second click must not re-fire the morph');
 });
 
+test('clicking the band opens the panel, and clicking again closes it', () => {
+  const open = I.toggle(I.create(), 100);
+  assert.strictEqual(open.m.state, I.EXPANDED);
+  assert.deepStrictEqual(open.effects, ['expand']);
+
+  const shut = I.toggle(open.m, 200);
+  assert.strictEqual(shut.m.state, I.DORMANT);
+  assert.deepStrictEqual(shut.effects, ['collapse']);
+});
+
+test('a click that dismisses does not let hover re-open it under the cursor', () => {
+  // The click that closes the panel leaves the pointer on the very thing
+  // that opens it, so without this the next sample re-expands and the panel
+  // can never be dismissed at all.
+  const shut = I.toggle(I.toggle(I.create(), 0).m, 100);
+  const stillThere = run(shut.m, [[IN, 200], [IN, 400], [IN, 900]]);
+  assert.strictEqual(stillThere.m.state, I.DORMANT, 'it reopened under the cursor');
+  assert.deepStrictEqual(stillThere.effects, []);
+
+  // Leaving re-arms hover normally.
+  const left = run(stillThere.m, [[OUT, 1000]]);
+  assert.strictEqual(left.m.suppressHover, false);
+  const back = run(left.m, [[IN, 1100], [IN, 1300]]);
+  assert.strictEqual(back.m.state, I.EXPANDED, 'hover must work again once the cursor left');
+});
+
+test('a deliberate dismissal is not undone by a twitch', () => {
+  const shut = I.toggle(I.toggle(I.create(), 0).m, 100);
+  assert.strictEqual(shut.m.lastCollapseAt, null,
+    'quick-return would reopen it without the dwell, defeating the dismissal');
+});
+
+test('clicking the band promotes a peek rather than dismissing it', () => {
+  const peeking = I.alert(I.create(), 'session', 0);
+  const r = I.toggle(peeking.m, 500);
+  assert.strictEqual(r.m.state, I.EXPANDED);
+  assert.deepStrictEqual(r.effects, ['unpeek', 'expand']);
+});
+
+test('clicking the band cannot close a panel with a task running in it', () => {
+  const open = I.toggle(I.create(), 0);
+  const busy = { ...open.m, busy: true };
+  const r = I.toggle(busy, 100);
+  assert.strictEqual(r.m.state, I.EXPANDED, 'a sign-in in progress must not be dismissed');
+  assert.deepStrictEqual(r.effects, []);
+});
+
 test('wings toggle on and off and never touch the panel state', () => {
   let r = I.toggleWings(I.create());
   assert.strictEqual(r.m.wings, true);

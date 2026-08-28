@@ -124,7 +124,7 @@ let inFlight = false;
 let nextAllowedAt = 0;    // wall-clock floor under every fetch, whoever asks
 let lastFetchAt = 0;      // so a held mouse button cannot become a flood
 let serverImposed = false; // only a 429 / Retry-After makes the floor unwaivable
-let surfaceRect = null;   // the island's REAL drawn bounds, reported by the renderer
+let surfaceRects = [];    // the island's REAL drawn pixels, reported by the renderer
 let ready = false;
 let currentDisplayId = null;
 let pollTimer = null;
@@ -381,7 +381,7 @@ function poll() {
   // Keep-alive is the geometric area OR the surface actually drawn, padded:
   // a control outside it would collapse the panel under the cursor reaching
   // for it, which is how a button becomes unclickable.
-  const surface = surfaceScreenRect();
+  const surface = surfaceBounds();
   const inKeepAlive =
     N.insideKeepAlive(cursor, display, rows, overrides()) ||
     N.inRect(cursor, surface && {
@@ -402,18 +402,32 @@ function poll() {
   // reports its own bounds, because a rect computed from constants drifts
   // from the pixels and the gap becomes a window that eats clicks aimed at
   // whatever is behind it.
-  setInteractive(N.inRect(cursor, surfaceScreenRect()));
+  // Any ONE of the drawn rectangles, never their bounding box: the gap
+  // beside the notch belongs to the menu bar.
+  setInteractive(surfaceScreenRects().some((r) => N.inRect(cursor, r)));
 }
 
-/** The island's drawn surface in screen coordinates, or null if nothing is out. */
-function surfaceScreenRect() {
-  if (!surfaceRect || !win || win.isDestroyed() || !win.isVisible()) return null;
+/** The island's drawn pixels in screen coordinates, as a list of rectangles. */
+function surfaceScreenRects() {
+  if (!surfaceRects.length || !win || win.isDestroyed() || !win.isVisible()) return [];
   const b = win.getBounds();
+  return surfaceRects.map((r) => ({
+    left: b.x + r.left,
+    right: b.x + r.right,
+    top: b.y + r.top,
+    bottom: b.y + r.bottom
+  }));
+}
+
+/** The union, for the keep-alive area and for sizing the window. */
+function surfaceBounds() {
+  const list = surfaceScreenRects();
+  if (!list.length) return null;
   return {
-    left: b.x + surfaceRect.left,
-    right: b.x + surfaceRect.right,
-    top: b.y + surfaceRect.top,
-    bottom: b.y + surfaceRect.bottom
+    left: Math.min(...list.map((r) => r.left)),
+    right: Math.max(...list.map((r) => r.right)),
+    top: Math.min(...list.map((r) => r.top)),
+    bottom: Math.max(...list.map((r) => r.bottom))
   };
 }
 
@@ -799,6 +813,15 @@ function setPrimeMode(mode) {
   if (chain || times.length) checkPrime();
 }
 
+/** Applied live, so the choice takes effect without a restart. */
+function setContentProtection(on) {
+  config.contentProtection = on === true;
+  saveConfig({ contentProtection: config.contentProtection });
+  if (win && !win.isDestroyed()) win.setContentProtection(config.contentProtection);
+  trace(`content protection: ${config.contentProtection ? 'on (hidden from capture)' : 'off (visible in capture)'}`);
+  buildMenu(true);
+}
+
 function setWingInfo(mode) {
   const next = ['off', 'remaining', 'ends'].includes(mode) ? mode : 'off';
   config.wingInfo = next;
@@ -953,7 +976,7 @@ function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
   const paused = alertsPausedUntil > Date.now();
   const signature = [
-    credProblem(), signingIn, machine.wings, paused, primeNote(),
+    credProblem(), signingIn, machine.wings, paused, primeNote(), config.contentProtection,
     priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
     (lastData.gauges || []).length > 0, autostart.isEnabled()
   ].join('|');
@@ -1035,6 +1058,16 @@ function buildMenu(force = false) {
       checked: autostart.isEnabled() === true,
       enabled: autostart.isEnabled() !== null,
       click: (item) => { autostart.setEnabled(item.checked); buildMenu(true); }
+    },
+    {
+      // On by default because the island sits at the top of the screen
+      // during exactly the moments people demo and record, and it is showing
+      // account usage. But it is the reason the widget is missing from your
+      // own screenshots too, so it has to be a visible switch.
+      label: 'Show in screenshots and screen sharing',
+      type: 'checkbox',
+      checked: config.contentProtection === false,
+      click: (item) => setContentProtection(!item.checked)
     },
     { label: 'Reload settings', click: () => reloadConfig() },
     { label: 'Show the config file', click: () => revealConfig() },
@@ -1375,11 +1408,10 @@ app.whenReady().then(() => {
 
 // Clicks on the island's surface arrive here from the renderer.
 // The renderer reports the island's real drawn bounds after every paint.
-ipcMain.on('island-surface', (e, rect) => {
+ipcMain.on('island-surface', (e, rects) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
-  surfaceRect = rect && ['left', 'top', 'right', 'bottom'].every((k) => Number.isFinite(rect[k]))
-    ? rect
-    : null;
+  const ok = (r) => r && ['left', 'top', 'right', 'bottom'].every((k) => Number.isFinite(r[k]));
+  surfaceRects = Array.isArray(rects) ? rects.filter(ok) : [];
   ensureTallEnough();
 });
 
@@ -1396,11 +1428,11 @@ ipcMain.on('island-surface', (e, rect) => {
  * genuinely changes, so this cannot ratchet upward or oscillate.
  */
 function ensureTallEnough() {
-  if (!surfaceRect || !win || win.isDestroyed()) return;
+  if (!surfaceRects.length || !win || win.isDestroyed()) return;
   const display = currentDisplay();
   if (!display) return;
   const b = win.getBounds();
-  const needed = Math.ceil(surfaceRect.bottom) + N.G.windowSlack;
+  const needed = Math.ceil(Math.max(...surfaceRects.map((r) => r.bottom))) + N.G.windowSlack;
   if (needed <= b.height) return;
   const height = Math.min(needed, display.bounds.height);
   if (height > b.height) win.setBounds({ ...b, height });
@@ -1424,6 +1456,12 @@ ipcMain.on('island-action', (e, name, value) => {
     signInViaClaudeCode();
   } else if (name === 'prime') {
     primeNow();
+  } else if (name === 'toggle') {
+    const was = machine.state;
+    const r = I.toggle(machine, Date.now());
+    machine = r.m;
+    applyEffects(r.effects);
+    trace(`band clicked: ${was} -> ${machine.state}`);
   } else if (name === 'expand') {
     const r = I.promote(machine);
     machine = r.m;
