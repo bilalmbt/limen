@@ -400,15 +400,18 @@ html, body {
 }
 .tick.crossed { background: rgba(0, 0, 0, 0.45); }
 
-/* What a full bar means on this account, when it isn't "you are stopped". */
-#ceiling {
+/* Footnotes: what a full bar means on this account when it isn't "you are
+   stopped", and whether the island is scheduled to open a window for you. */
+#ceiling, #prime {
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--edge);
   font-size: var(--t-meta);
   color: var(--ink-dim);
 }
-#ceiling.off { display: none; }
+#ceiling.off, #prime.off { display: none; }
+/* Two footnotes share one rule; the second must not draw a second line. */
+#ceiling:not(.off) + #prime:not(.off) { border-top: none; margin-top: 3px; padding-top: 0; }
 
 /* ---- the island's own controls ---- */
 .iconbtn {

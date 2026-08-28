@@ -72,6 +72,46 @@ Three rules keep it from feeling like a web page:
 
 `prefers-reduced-motion` drops all of it to a 100 ms cross-fade.
 
+## Session priming (off by default)
+
+The five-hour window starts at your **first message**, so where its boundary
+falls is decided by when you happen to start work. Start at 11:00 and the
+boundaries land at 16:00 and 21:00 — so a cap you hit at 15:00 blocks you for
+an hour of the working day. Prime at 08:00 instead and they land at 13:00 and
+18:00, where a pause costs you a coffee break.
+
+```json
+{ "primeAt": ["08:00"], "primeDays": [1, 2, 3, 4, 5] }
+```
+
+At a scheduled time the island sends one short message through Claude Code to
+open a window. Three rules keep it honest:
+
+- **It only acts when acting would do something.** A message cannot restart a
+  window that is already running — that window still ends five hours after
+  its own first message. So if a window is open, priming is skipped rather
+  than spending quota for nothing.
+- **Once per slot, and not made up later.** A missed 08:00 is not primed at
+  14:00; that would put the boundary exactly where you didn't want it. There
+  is a 15-minute grace for a laptop that woke up late.
+- **It says it is armed.** The panel footer and the tray both show when the
+  next window will be opened. Silent automation on your account is a
+  surprise, not a feature.
+
+**What this is not.** It does not give you extra quota, and you are not
+losing session time while away — the window is a rate-limit clock, not a
+bucket that fills up. All it does is let you choose where the boundaries sit.
+A continuous 24/7 chain was deliberately not built: the boundaries would
+drift five hours a day and land at arbitrary times, which is the problem
+rather than the fix.
+
+**Worth knowing before you switch it on.** This sends messages on your
+account on a timer, and it exists to influence when a rate-limit window
+begins. That is a reasonable thing to do by hand and this only automates the
+timing — but it is worth a look at Anthropic's usage policy to be comfortable
+with it. It is off unless you list a time, and it is one line to turn off
+again.
+
 ## How it decides where the notch is
 
 No per-model table, no hardcoded menu-bar height — both break under display

@@ -280,6 +280,13 @@ function renderPanel() {
   ceilingEl.classList.toggle('off', !note);
   ceilingEl.textContent = note;
 
+  // A feature that spends quota on a schedule has to say it is armed, and
+  // when it will next act. Silent automation on someone's account is not a
+  // feature, it is a surprise.
+  const primeEl = $('#prime');
+  primeEl.classList.toggle('off', !d.primeNote);
+  primeEl.textContent = d.primeNote ? `⟳ ${d.primeNote}` : '';
+
   const rowsEl = $('#rows');
   // The reason only shapes the DOM when there are no gauges to draw; letting
   // it into the key otherwise tore the rows down mid-entrance (a 'loading'

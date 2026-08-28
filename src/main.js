@@ -32,6 +32,7 @@ const N = require('./notch');
 const I = require('./island-state');
 const trend = require('./trend');
 const autostart = require('./autostart');
+const prime = require('./prime');
 const VM = require('./viewmodel');
 const { execFile } = require('child_process');
 
@@ -51,7 +52,15 @@ const DEFAULTS = {
   osNotifications: false,   // peek replaces notifications; turn both on if you like
   shortcut: 'CommandOrControl+Shift+I',     // menu-bar chips; '' registers nothing
   showShortcut: 'CommandOrControl+Shift+U', // open the panel without the mouse
-  contentProtection: true   // keep the island out of screenshots and shares
+  contentProtection: true,  // keep the island out of screenshots and shares
+
+  // Session priming. OFF unless you list times. The five-hour window starts
+  // at your first message, so priming at 08:00 puts the boundaries at 13:00
+  // and 18:00 — inside the working day. It sends one short message through
+  // Claude Code, and only when no window is already running, because a
+  // message cannot restart a window that has already begun.
+  primeAt: [],              // e.g. ["08:00"] — local times, "" or [] is off
+  primeDays: [1, 2, 3, 4, 5] // 0 = Sunday … 6 = Saturday
 };
 
 /**
@@ -81,6 +90,14 @@ function sanitize(raw) {
   c.displayId = typeof c.displayId === 'string' || Number.isFinite(c.displayId)
     ? c.displayId
     : DEFAULTS.displayId;
+  // A malformed time must not become a surprise message: only real "HH:MM"
+  // entries survive, and anything else leaves priming switched off.
+  c.primeAt = Array.isArray(c.primeAt)
+    ? c.primeAt.filter((t) => prime.parseTime(t) !== null)
+    : [];
+  c.primeDays = Array.isArray(c.primeDays)
+    ? c.primeDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : DEFAULTS.primeDays;
   return c;
 }
 
@@ -493,8 +510,12 @@ async function refresh(cause = 'schedule', force = false) {
     // The panel draws threshold marks where the alerts sit, so it needs to
     // know where they are.
     lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
+    lastData.primeNote = primeNote();
     if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
     updateTray();
+    // Checked on the data cadence: it needs to know whether a window is open,
+    // which is exactly what we just found out.
+    checkPrime();
   } catch (err) {
     // A rendering or notification hiccup must never kill the polling loop:
     // a widget that silently stops refreshing looks exactly like a crash.
@@ -639,6 +660,89 @@ let pendingTerminal = false;   // the first click nudges; a second opens Termina
  *   2. If the numbers are still locked out, a real login needs a human and a
  *      browser: open Terminal running `claude`, where /login lives.
  */
+// --- Session priming ---------------------------------------------------------
+
+let priming = false;
+let lastPrime = store.read().lastPrime || { day: null, slot: null };
+
+/** Is a five-hour window running right now? */
+function sessionOpen() {
+  const g = (lastData.gauges || []).find((x) => x.id === 'session');
+  if (!g || !g.resetsAt) return false;
+  const at = Date.parse(g.resetsAt);
+  return Number.isFinite(at) && at > Date.now();
+}
+
+/**
+ * Open a fresh window at a scheduled time, by sending one short message
+ * through Claude Code. Checked on the refresh cadence, which is finer than
+ * the grace window, so a slot cannot be stepped over.
+ */
+async function checkPrime() {
+  if (priming || !config.primeAt.length) return;
+  // Nothing to prime with, and nothing worth spending: a broken sign-in
+  // would just produce a failed message.
+  if (credProblem() || !lastData.ok) return;
+
+  const now = new Date();
+  const today = now.getDay();
+  const minutesNow = now.getHours() * 60 + now.getMinutes();
+  const slot = prime.dueSlot({
+    times: config.primeAt,
+    days: config.primeDays,
+    weekday: today,
+    minutesNow,
+    lastSlot: lastPrime.day === today ? lastPrime.slot : null,
+    sessionOpen: sessionOpen()
+  });
+  if (slot === null) return;
+
+  priming = true;
+  // Recorded BEFORE the attempt: a crash mid-send must not leave the slot
+  // armed to fire again on the next tick.
+  lastPrime = { day: today, slot };
+  store.save({ lastPrime });
+  try {
+    const bin = await resolveClaude();
+    if (!bin) {
+      trace(`prime ${prime.formatSlot(slot)}: Claude Code not found; nothing sent`);
+      return;
+    }
+    trace(`prime ${prime.formatSlot(slot)}: opening a new session window`);
+    await new Promise((resolve) => {
+      execFile(bin, ['-p', 'ok', '--output-format', 'text'],
+        { timeout: 90000 }, (err) => {
+          trace(err
+            ? `prime ${prime.formatSlot(slot)}: failed — ${err.message}`
+            : `prime ${prime.formatSlot(slot)}: window opened`);
+          resolve();
+        });
+    });
+    await refresh('prime', true);
+  } finally {
+    priming = false;
+  }
+}
+
+/** "next at 08:00" / "next Mon 08:00" — so an armed feature says so. */
+function primeNote() {
+  if (!config.primeAt.length) return '';
+  const now = new Date();
+  const next = prime.nextSlot({
+    times: config.primeAt,
+    days: config.primeDays,
+    weekday: now.getDay(),
+    minutesNow: now.getHours() * 60 + now.getMinutes()
+  });
+  if (!next) return '';
+  const when = prime.formatSlot(next.minutes);
+  if (next.daysAhead === 0) return `new window at ${when}`;
+  if (next.daysAhead === 1) return `new window tomorrow ${when}`;
+  const day = new Date(now.getTime() + next.daysAhead * 86400000)
+    .toLocaleDateString(app.getLocale() || undefined, { weekday: 'short' });
+  return `new window ${day} ${when}`;
+}
+
 /** Tell the panel what the sign-in is doing; it collapses out from under it otherwise. */
 function sendSignIn(status, detail) {
   if (ready && win && !win.isDestroyed()) win.webContents.send('signin', { status, detail });
@@ -725,7 +829,7 @@ function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
   const paused = alertsPausedUntil > Date.now();
   const signature = [
-    credProblem(), signingIn, machine.wings, paused,
+    credProblem(), signingIn, machine.wings, paused, primeNote(),
     (lastData.gauges || []).length > 0, autostart.isEnabled()
   ].join('|');
   if (!force && signature === menuSignature) return;
@@ -752,6 +856,10 @@ function buildMenu(force = false) {
       accelerator: config.shortcut || undefined,
       click: () => toggleWings()
     },
+    ...(config.primeAt.length ? [{
+      label: primeNote() ? `Priming: ${primeNote()}` : 'Priming on',
+      enabled: false
+    }] : []),
     {
       label: paused ? 'Alerts paused' : 'Pause alerts',
       submenu: [
@@ -905,6 +1013,9 @@ function playScene(scene) {
     send('panel', true);
   } else if (scene === 'billing') {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
+    send('panel', true);
+  } else if (scene === 'priming') {
+    send('usage', { ...FIXTURE, primeNote: 'new window tomorrow 08:00' });
     send('panel', true);
   } else if (scene === 'pace') {
     // A quota on course to run out before its window resets.
