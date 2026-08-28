@@ -1195,6 +1195,10 @@ function toggleWings() {
  * reach it on macOS — `website` and `authors` are Linux-only keys — and none
  * of it is clickable, so every address here is also written out in full for
  * someone reading rather than clicking.
+ *
+ * The upstream MIT notice lives in LICENSE, which is where the licence
+ * requires it and where it survives being redistributed. This panel is the
+ * author's line, not the legal one.
  */
 function setAboutPanel() {
   const { version } = require('../package.json');
@@ -1206,11 +1210,7 @@ function setAboutPanel() {
       'Your Claude usage limits, in the MacBook notch.',
       '',
       'Made by @billybowss — x.com/billybowss',
-      'github.com/jarvisbot19/claude-island',
-      '',
-      'The data layer is ported from Claude-Marge-Widget',
-      'by Ulrich Rozier (MIT) — the same real limits, read',
-      'the same honest way.'
+      'github.com/jarvisbot19/claude-island'
     ].join('\n')
   });
 }
