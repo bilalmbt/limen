@@ -26,7 +26,7 @@ const G = {
   fallbackMenuBar: 24,     // hot-strip height when the OS reports none
   panelWidth: 400,         // the expanded panel
   windowWidth: 520,        // the window is wider: room for morph and shadow
-  windowSlack: 36,         // below the panel, so shadows are not clipped
+  windowSlack: 84,         // below the panel: the shadow reaches 26+56 px
   keepAliveMargin: 16,     // sideways beyond the panel
   keepAliveBottom: 44      // below the panel
 };

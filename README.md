@@ -80,6 +80,18 @@ boundaries land at 16:00 and 21:00 — so a cap you hit at 15:00 blocks you for
 an hour of the working day. Prime at 08:00 instead and they land at 13:00 and
 18:00, where a pause costs you a coffee break.
 
+It lives in the widget, under **Session window** in the tray menu:
+
+| Control | What it does |
+|---|---|
+| **Open one now** | Sends one short message through Claude Code, opening a window immediately. Disabled while a window is running — it reads *Open until 10:50 PM* instead, because a message cannot restart a window that has begun. |
+| **Open one automatically at** | Never / 06:00 / 07:00 / 08:00 / 09:00 / 10:00. |
+| **Weekdays only** | On by default once a time is chosen. |
+
+The panel carries the same button — but only when no window is running,
+which is the one moment it would do anything. Any other time is available by
+hand in the config file:
+
 ```json
 { "primeAt": ["08:00"], "primeDays": [1, 2, 3, 4, 5] }
 ```

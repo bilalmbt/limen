@@ -323,6 +323,7 @@ function renderPanel() {
   const rowEls = rowsEl.querySelectorAll('.row');
   gauges.forEach((gauge, i) => fillRow(rowEls[i], gauge, d.alertAt));
   syncSignIn(rowsEl, d.reason);
+  syncPrime(rowsEl, d);
 }
 
 /**
@@ -433,6 +434,33 @@ function fillRow(row, gauge, thresholds) {
     span.textContent = ` · ${rate}`;
     reset.appendChild(span);
   }
+}
+
+/**
+ * "Open a session window" — shown only when no window is running, because
+ * that is the only moment the button would do anything: a message cannot
+ * restart a window that has already begun.
+ */
+function syncPrime(rowsEl, d) {
+  const existing = rowsEl.querySelector('.btn-prime');
+  const status = state.signin && state.signin.status;
+  const busy = status === 'priming';
+  const show = (d.canPrime || busy) && !VM.isCredentialProblem(d.reason);
+  if (!show) {
+    if (existing) existing.remove();
+    return;
+  }
+  const btn = existing || (() => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-prime';
+    b.addEventListener('click', () => window.island.act('prime'));
+    rowsEl.appendChild(b);
+    return b;
+  })();
+  btn.textContent = busy ? 'Opening a window…'
+    : status === 'prime-failed' ? 'Could not open — try again'
+    : 'Open a session window';
+  btn.disabled = busy;
 }
 
 /** The one-click fix, right where the problem is reported. */

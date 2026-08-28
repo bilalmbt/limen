@@ -511,6 +511,7 @@ async function refresh(cause = 'schedule', force = false) {
     // know where they are.
     lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
     lastData.primeNote = primeNote();
+    lastData.canPrime = data.ok && !sessionOpen();
     if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
     updateTray();
     // Checked on the data cadence: it needs to know whether a window is open,
@@ -673,6 +674,14 @@ function sessionOpen() {
   return Number.isFinite(at) && at > Date.now();
 }
 
+/** When the running window ends, for the menu to explain why it is disabled. */
+function sessionEndsAt() {
+  const g = (lastData.gauges || []).find((x) => x.id === 'session');
+  if (!g || !g.resetsAt) return '';
+  return new Date(g.resetsAt).toLocaleTimeString(app.getLocale() || undefined,
+    { hour: '2-digit', minute: '2-digit' });
+}
+
 /**
  * Open a fresh window at a scheduled time, by sending one short message
  * through Claude Code. Checked on the refresh cadence, which is finer than
@@ -722,6 +731,63 @@ async function checkPrime() {
   } finally {
     priming = false;
   }
+}
+
+/**
+ * Open a window right now, by hand. Refuses when one is already running —
+ * the message could not restart it, so the only effect would be spending
+ * quota — and says so rather than appearing to do nothing.
+ */
+async function primeNow() {
+  if (priming) return;
+  if (sessionOpen()) { trace('prime now: a window is already open; nothing sent'); return; }
+  priming = true;
+  buildMenu(true);
+  sendSignIn('priming');
+  try {
+    const bin = await resolveClaude();
+    if (!bin) {
+      trace('prime now: Claude Code not found; nothing sent');
+      sendSignIn('prime-failed');
+      return;
+    }
+    trace('prime now: opening a new session window');
+    await new Promise((resolve) => {
+      execFile(bin, ['-p', 'ok', '--output-format', 'text'],
+        { timeout: 90000 }, (err) => {
+          if (err) trace(`prime now: failed — ${err.message}`);
+          resolve();
+        });
+    });
+    await refresh('prime-now', true);
+    sendSignIn(sessionOpen() ? 'primed' : 'prime-failed');
+  } finally {
+    priming = false;
+    buildMenu(true);
+  }
+}
+
+/** Set the automatic time from the menu, so this is not a config-file feature. */
+function setPrimeTime(time) {
+  config.primeAt = time ? [time] : [];
+  saveConfig({ primeAt: config.primeAt });
+  trace(time ? `priming scheduled for ${time}` : 'priming switched off');
+  buildMenu(true);
+  pushUsage();
+}
+
+function setPrimeWeekdays(weekdaysOnly) {
+  config.primeDays = weekdaysOnly ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
+  saveConfig({ primeDays: config.primeDays });
+  buildMenu(true);
+  pushUsage();
+}
+
+/** Re-send the current reading, so a settings change shows up immediately. */
+function pushUsage() {
+  lastData.primeNote = primeNote();
+  lastData.canPrime = !sessionOpen();
+  if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
 }
 
 /** "next at 08:00" / "next Mon 08:00" — so an armed feature says so. */
@@ -830,6 +896,7 @@ function buildMenu(force = false) {
   const paused = alertsPausedUntil > Date.now();
   const signature = [
     credProblem(), signingIn, machine.wings, paused, primeNote(),
+    priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
     (lastData.gauges || []).length > 0, autostart.isEnabled()
   ].join('|');
   if (!force && signature === menuSignature) return;
@@ -856,10 +923,36 @@ function buildMenu(force = false) {
       accelerator: config.shortcut || undefined,
       click: () => toggleWings()
     },
-    ...(config.primeAt.length ? [{
-      label: primeNote() ? `Priming: ${primeNote()}` : 'Priming on',
-      enabled: false
-    }] : []),
+    {
+      label: 'Session window',
+      submenu: [
+        {
+          // The 5h window starts at your first message, so opening one at a
+          // chosen time puts its boundaries where your day needs them.
+          label: priming ? 'Opening a window…'
+            : sessionOpen() ? `Open until ${sessionEndsAt()}`
+            : 'Open one now',
+          enabled: !priming && !sessionOpen() && !credProblem(),
+          click: () => primeNow()
+        },
+        { type: 'separator' },
+        { label: 'Open one automatically at', enabled: false },
+        ...['', '06:00', '07:00', '08:00', '09:00', '10:00'].map((t) => ({
+          label: t || 'Never',
+          type: 'radio',
+          checked: (config.primeAt[0] || '') === t,
+          click: () => setPrimeTime(t)
+        })),
+        { type: 'separator' },
+        {
+          label: 'Weekdays only',
+          type: 'checkbox',
+          checked: config.primeDays.length === 5,
+          enabled: config.primeAt.length > 0,
+          click: (item) => setPrimeWeekdays(item.checked)
+        }
+      ]
+    },
     {
       label: paused ? 'Alerts paused' : 'Pause alerts',
       submenu: [
@@ -1015,7 +1108,13 @@ function playScene(scene) {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
     send('panel', true);
   } else if (scene === 'priming') {
-    send('usage', { ...FIXTURE, primeNote: 'new window tomorrow 08:00' });
+    // No window running: the one moment the button would do something.
+    send('usage', {
+      ...FIXTURE,
+      gauges: FIXTURE.gauges.map((g) => g.id === 'session' ? { ...g, percent: 0 } : g),
+      canPrime: true,
+      primeNote: 'new window tomorrow 08:00'
+    });
     send('panel', true);
   } else if (scene === 'pace') {
     // A quota on course to run out before its window resets.
@@ -1163,7 +1262,31 @@ ipcMain.on('island-surface', (e, rect) => {
   surfaceRect = rect && ['left', 'top', 'right', 'bottom'].every((k) => Number.isFinite(rect[k]))
     ? rect
     : null;
+  ensureTallEnough();
 });
+
+/**
+ * Grow the window to fit what the renderer actually drew.
+ *
+ * panelHeight() estimates from a row count, but the panel carries optional
+ * content — a status strip, a sign-in or open-a-window button, footnotes —
+ * and any of them can push it past an estimate. The window then clips its
+ * own panel. Growing from the measured surface is the same rule as the hit
+ * test: derive from the pixels, do not predict them.
+ *
+ * Only ever grows; placeOn() recomputes from scratch when the layout
+ * genuinely changes, so this cannot ratchet upward or oscillate.
+ */
+function ensureTallEnough() {
+  if (!surfaceRect || !win || win.isDestroyed()) return;
+  const display = currentDisplay();
+  if (!display) return;
+  const b = win.getBounds();
+  const needed = Math.ceil(surfaceRect.bottom) + N.G.windowSlack;
+  if (needed <= b.height) return;
+  const height = Math.min(needed, display.bounds.height);
+  if (height > b.height) win.setBounds({ ...b, height });
+}
 
 ipcMain.on('island-action', (e, name) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
@@ -1171,6 +1294,8 @@ ipcMain.on('island-action', (e, name) => {
     refresh('button', true);
   } else if (name === 'sign-in') {
     signInViaClaudeCode();
+  } else if (name === 'prime') {
+    primeNow();
   } else if (name === 'expand') {
     const r = I.promote(machine);
     machine = r.m;
