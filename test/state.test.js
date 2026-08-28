@@ -58,5 +58,22 @@ test('saving merges rather than replacing', () => {
   assert.ok(s.alerts.session);
 });
 
+test('keys from an older version are not carried forever', () => {
+  store.write({});
+  store.save({ failures: 1, verticalAnchor: 0.45, theme: 'ember' });
+  const s = store.read();
+  assert.strictEqual(s.failures, 1);
+  assert.strictEqual('theme' in s, false, 'debris must not survive a save');
+  assert.strictEqual('verticalAnchor' in s, false);
+});
+
+test('a merge still keeps every key the app does use', () => {
+  store.write({});
+  for (const key of store.KNOWN) store.save({ [key]: 'x' });
+  const s = store.read();
+  assert.deepStrictEqual(Object.keys(s).sort(), [...store.KNOWN].sort(),
+    'the allow-list must not quietly drop something the app relies on');
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`\n${passed} state tests passed`);

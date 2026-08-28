@@ -33,6 +33,7 @@ const I = require('./island-state');
 const trend = require('./trend');
 const autostart = require('./autostart');
 const prime = require('./prime');
+const { DEFAULTS, sanitize } = require('./config');
 const VM = require('./viewmodel');
 const { execFile } = require('child_process');
 
@@ -41,33 +42,6 @@ const CAPTURE = process.env.ISLAND_CAPTURE || null;
 const SCENE = process.env.ISLAND_SCENE || 'expanded';
 
 const CONFIG_PATH = path.join(os.homedir(), '.config', 'claude-island', 'config.json');
-const DEFAULTS = {
-  refreshSeconds: 120,      // asking more often is what gets you rate limited
-  alertAt: [80, 95],        // peek when a quota crosses these marks; [] = never
-  wings: false,             // ambient rings: opt-in, the menu bar is busy land
-  externalDisplays: 'island', // 'island' draws a virtual one, 'off' draws nothing
-  displayId: 'primary',     // which notchless display hosts the virtual island
-  notchWidth: null,         // points; null = derived from the display
-  timeFormat: 'auto',       // 'auto', '12' or '24'
-  osNotifications: false,   // peek replaces notifications; turn both on if you like
-  shortcut: 'CommandOrControl+Shift+I',     // menu-bar chips; '' registers nothing
-  showShortcut: 'CommandOrControl+Shift+U', // open the panel without the mouse
-  contentProtection: true,  // keep the island out of screenshots and shares
-
-  // Session priming. OFF unless you list times. The five-hour window starts
-  // at your first message, so priming at 08:00 puts the boundaries at 13:00
-  // and 18:00 — inside the working day. It sends one short message through
-  // Claude Code, and only when no window is already running, because a
-  // message cannot restart a window that has already begun.
-  primeAt: [],              // e.g. ["08:00"] — local times, "" or [] is off
-  primeDays: [1, 2, 3, 4, 5], // 0 = Sunday … 6 = Saturday
-  primeChain: false,        // open a new window the moment the old one ends
-  // Cheapest model on purpose. Priming with the DEFAULT model would spend
-  // the weekly quota of whatever that is — so a widget meant to protect an
-  // Opus budget would quietly eat it, five times a day.
-  primeModel: 'haiku'
-};
-
 /**
  * Exactly what a prime sends, in one place so it can be documented honestly.
  * One word, on the cheapest model, with no session file and no MCP servers
@@ -82,54 +56,38 @@ function primeArgs() {
 }
 
 /**
- * Config is user-editable, so every value is treated as untrusted. A bad
- * entry must degrade one setting, never take the app down or silently stop
- * the refresh loop — both of which a wrong type used to do.
+ * Read the settings, and CLEAN THE FILE if reading it found anything wrong.
+ *
+ * Normalising only in memory was the mistake: a contradictory pair or a key
+ * from an older version would be ignored on every launch and left on disk
+ * forever, so the file drifted further from what the app actually does every
+ * time something changed. Rewriting it means the file is always the truth.
  */
-function sanitize(raw) {
-  const c = { ...DEFAULTS, ...raw };
-  const num = (v, lo, hi, fallback) =>
-    (Number.isFinite(v) && v >= lo && v <= hi ? v : fallback);
-
-  c.refreshSeconds = num(c.refreshSeconds, 30, 3600, DEFAULTS.refreshSeconds);
-  c.notchWidth = Number.isFinite(c.notchWidth) && c.notchWidth > 0
-    ? Math.min(c.notchWidth, 600)
-    : null;
-  c.alertAt = Array.isArray(c.alertAt)
-    ? c.alertAt.filter((n) => Number.isFinite(n) && n > 0 && n <= 100)
-    : DEFAULTS.alertAt;
-  c.shortcut = typeof c.shortcut === 'string' ? c.shortcut : DEFAULTS.shortcut;
-  c.showShortcut = typeof c.showShortcut === 'string' ? c.showShortcut : DEFAULTS.showShortcut;
-  c.contentProtection = c.contentProtection !== false;
-  c.wings = c.wings === true;
-  c.osNotifications = c.osNotifications === true;
-  c.externalDisplays = c.externalDisplays === 'off' ? 'off' : 'island';
-  c.timeFormat = ['12', '24', 'auto'].includes(c.timeFormat) ? c.timeFormat : 'auto';
-  c.displayId = typeof c.displayId === 'string' || Number.isFinite(c.displayId)
-    ? c.displayId
-    : DEFAULTS.displayId;
-  // A malformed time must not become a surprise message: only real "HH:MM"
-  // entries survive, and anything else leaves priming switched off.
-  c.primeAt = Array.isArray(c.primeAt)
-    ? c.primeAt.filter((t) => prime.parseTime(t) !== null)
-    : [];
-  c.primeDays = Array.isArray(c.primeDays)
-    ? c.primeDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
-    : DEFAULTS.primeDays;
-  c.primeChain = c.primeChain === true;
-  c.primeModel = /^[a-z0-9-]{1,60}$/.test(String(c.primeModel || ''))
-    ? c.primeModel
-    : DEFAULTS.primeModel;
-  return c;
+function loadConfig() {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (_) {
+    return { ...DEFAULTS };   // absent or unreadable: defaults, write nothing
+  }
+  const { config: cfg, file, dropped } = sanitize(raw);
+  if (dropped.length) {
+    writeConfigFile(file);
+    trace(`settings cleaned: dropped ${dropped.join(', ')}`);
+  }
+  return cfg;
 }
 
-function loadConfig() {
+function writeConfigFile(file) {
   try {
-    return sanitize(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')));
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(file, null, 2) + '\n');
+    return true;
   } catch (_) {
-    return { ...DEFAULTS };
+    return false;   // a read-only home must not take the island down
   }
 }
+
 let config = loadConfig();
 
 /**
@@ -138,12 +96,12 @@ let config = loadConfig();
  * made while the island was running.
  */
 function saveConfig(patch) {
-  try {
-    let onDisk = {};
-    try { onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) || {}; } catch (_) {}
-    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...onDisk, ...patch }, null, 2) + '\n');
-  } catch (_) { /* a read-only home must not take the island down */ }
+  let onDisk = {};
+  try { onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) || {}; } catch (_) {}
+  // Normalised on the way out too, so a write can never reintroduce the
+  // contradiction the read just removed.
+  const { file } = sanitize({ ...onDisk, ...patch });
+  writeConfigFile(file);
 }
 
 const overrides = () => (config.notchWidth ? { notchWidth: config.notchWidth } : {});

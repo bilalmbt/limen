@@ -31,10 +31,31 @@ function read() {
   }
 }
 
+/**
+ * What this file is allowed to contain. Anything else is debris from an
+ * older version, and merging on save would carry it forever — so the list
+ * is enforced on every write rather than only on the keys we happen to
+ * touch.
+ */
+const KNOWN = [
+  'lastGood',           // the last successful reading
+  'failures',           // consecutive failures, so a restart keeps the backoff
+  'nextAllowedAt',      // when the next fetch is due, so a restart serves it out
+  'lastReason',         // what the last failure was
+  'alerts',             // the ledger: once per level, per gauge, per window
+  'alertsPausedUntil',  // a pause the user asked for
+  'history',            // percentage samples for burn rate
+  'lastPrime'           // the auto-open slot already acted on today
+];
+
 function write(state) {
   try {
+    const clean = {};
+    for (const key of KNOWN) {
+      if (state[key] !== undefined) clean[key] = state[key];
+    }
     fs.mkdirSync(DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(state, null, 2));
+    fs.writeFileSync(FILE, JSON.stringify(clean, null, 2));
     return true;
   } catch (_) {
     return false;    // a read-only home must not take the widget down
@@ -60,4 +81,4 @@ function save(patch) {
   return write({ ...read(), ...patch });
 }
 
-module.exports = { read, write, save, restoreLastGood, restoreFailures, FILE, MAX_AGE_MS };
+module.exports = { read, write, save, restoreLastGood, restoreFailures, KNOWN, FILE, MAX_AGE_MS };
