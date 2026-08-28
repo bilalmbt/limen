@@ -281,20 +281,27 @@ function alignPanel(panel) {
     return;
   }
 
-  const model = VM.wingsModel(state.data.gauges);
+  const model = VM.wingsModel(state.data.gauges, wingCount());
   if (state.wings && model) {
-    // Derived from the notch, not from the text: the chips are equalized, so
-    // band width is notch + two chips, and its centre IS the notch centre.
-    // That also keeps the panel on the same axis as #peek, which centres on
-    // the window — otherwise the surface jumped sideways mid-morph.
-    const l = $('#wings .wing.left');
-    const r = $('#wings .wing.right');
-    const chip = !l.classList.contains('empty') ? l.offsetWidth
-      : !r.classList.contains('empty') ? r.offsetWidth : 0;
-    const sides = (l.classList.contains('empty') ? 0 : 1) + (r.classList.contains('empty') ? 0 : 1);
-    const bandWidth = g.notchWidth + chip * sides - 4;
+    // Centred on the BAND's real extent, measured — not on the notch.
+    //
+    // With two equalized chips those are the same point. With one chip the
+    // band genuinely sits off to one side, and centring the panel on the
+    // notch left the two misaligned: the band overhanging one way, the
+    // panel the other. The island is one shape, so the panel follows
+    // whatever the band actually is.
+    const notchLeft = center - g.notchWidth / 2;
+    const notchRight = center + g.notchWidth / 2;
+    let bandLeft = notchLeft;
+    let bandRight = notchRight;
+    for (const wing of document.querySelectorAll('#wings .wing')) {
+      if (wing.classList.contains('empty')) continue;
+      bandLeft = Math.min(bandLeft, wing.offsetLeft);
+      bandRight = Math.max(bandRight, wing.offsetLeft + wing.offsetWidth);
+    }
+    const bandWidth = bandRight - bandLeft;
     width = Math.max(bandWidth, 340);   // never so narrow the rows squeeze
-    left = center - width / 2;
+    left = (bandLeft + bandRight) / 2 - width / 2;
   }
   // Exact fractional pixels: rounding left and width independently drifts
   // the edges a device pixel away from the chips they must sit flush with.

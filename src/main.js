@@ -1229,7 +1229,8 @@ function playScene(scene) {
   // Hermetic: state every scene's wings explicitly. Inheriting the running
   // config meant "expanded" silently rendered wings on a machine that had
   // them on, so the no-wings panel was never actually reviewed.
-  send('wings', scene.startsWith('wings') || scene === 'full' || scene === 'collapse');
+  const WITH_WINGS = ['wings', 'wings-low', 'wings-high', 'full', 'full-one', 'collapse'];
+  send('wings', WITH_WINGS.includes(scene));
   if (scene === 'wings') {
     send('usage', FIXTURE);
   } else if (scene === 'expired') {
@@ -1242,6 +1243,9 @@ function playScene(scene) {
     send('panel', true);
   } else if (scene === 'billing') {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
+    send('panel', true);
+  } else if (scene === 'full-one') {
+    send('usage', { ...FIXTURE, wingCount: 1 });
     send('panel', true);
   } else if (scene === 'wings-low' || scene === 'wings-high') {
     // The two ends of the scale: a nearly-empty ring is the case where a
