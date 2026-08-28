@@ -8,9 +8,11 @@ const I = require('../src/island-state');
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
-const IN = { inHot: true, inKeepAlive: true };
-const NEAR = { inHot: false, inKeepAlive: true };   // over the open panel
-const OUT = { inHot: false, inKeepAlive: false };
+// `moved: 0` = the cursor is parked, which is what arms a dwell.
+const IN = { inHot: true, inKeepAlive: true, moved: 0 };
+const NEAR = { inHot: false, inKeepAlive: true, moved: 0 };   // over the open panel
+const OUT = { inHot: false, inKeepAlive: false, moved: 0 };
+const CROSSING = { inHot: true, inKeepAlive: true, moved: 40 };   // travelling through
 
 /** Run a scripted sequence of ticks; returns machine and every effect seen. */
 function run(m, steps) {
@@ -27,6 +29,40 @@ test('a graze across the top edge does not open the panel', () => {
   const { m, effects } = run(I.create(), [[IN, 0], [OUT, 40], [IN, 200], [OUT, 240]]);
   assert.strictEqual(m.state, I.DORMANT);
   assert.deepStrictEqual(effects, [], 'the island opened on a pass-through');
+});
+
+test('a cursor travelling through the hot zone never opens it, however long', () => {
+  // The real failure: crossing to Control Center keeps the pointer inside
+  // the strip for the better part of a second, so presence alone always
+  // tripped the dwell. Stillness is the signal, not presence.
+  const steps = [];
+  for (let t = 0; t <= 900; t += 40) steps.push([CROSSING, t]);
+  const { m, effects } = run(I.create(), steps);
+  assert.strictEqual(m.state, I.DORMANT);
+  assert.deepStrictEqual(effects, []);
+});
+
+test('parking after travelling through does open it', () => {
+  const { m } = run(I.create(), [[CROSSING, 0], [CROSSING, 40], [IN, 80], [IN, 210]]);
+  assert.strictEqual(m.state, I.EXPANDED);
+});
+
+test('coming straight back skips the dwell', () => {
+  let { m } = run(I.create(), [[IN, 0], [IN, 130]]);
+  const closed = run(m, [[OUT, 200], [OUT, 600]]);
+  assert.strictEqual(closed.m.state, I.DORMANT);
+  // One sample back inside, well under the dwell, because intent is settled.
+  const back = run(closed.m, [[IN, 700], [IN, 740]]);
+  assert.strictEqual(back.m.state, I.EXPANDED, 're-entry should not re-charge the dwell');
+});
+
+test('a task running in the panel holds it open', () => {
+  let { m } = run(I.create(), [[IN, 0], [IN, 130]]);
+  m = { ...m, busy: true };
+  const r = run(m, [[OUT, 200], [OUT, 1000], [OUT, 5000]]);
+  assert.strictEqual(r.m.state, I.EXPANDED, 'sign-in progress must not vanish under the cursor');
+  const done = run({ ...r.m, busy: false }, [[OUT, 6000], [OUT, 6400]]);
+  assert.strictEqual(done.m.state, I.DORMANT);
 });
 
 test('dwelling in the hot zone expands, once', () => {

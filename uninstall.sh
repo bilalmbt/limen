@@ -4,17 +4,18 @@
 # ~/.config/claude-island (delete that directory yourself if you want).
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LABEL="com.claudeisland.widget"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
+# bootout by label rather than pkill: `pkill -f "$DIR"` interpolates a path
+# into a regex, where a dot matches any character and the pattern is tested
+# against every one of your processes' full command lines.
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+
 if [ -f "$PLIST" ]; then
-  launchctl unload "$PLIST" 2>/dev/null || true
   rm "$PLIST"
   echo "Login item removed."
 else
   echo "No login item was registered."
 fi
-
-pkill -f "electron $DIR" 2>/dev/null || true
 echo "Done."

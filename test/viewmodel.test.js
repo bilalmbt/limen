@@ -8,15 +8,25 @@ const VM = require('../src/viewmodel');
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
-test('tones follow the headroom scale: 35, 70, 90', () => {
+test('tones follow the headroom scale: 50, 75, 90', () => {
   assert.strictEqual(VM.tone(0), 'ok');
-  assert.strictEqual(VM.tone(34), 'ok');
-  assert.strictEqual(VM.tone(35), 'warn');
-  assert.strictEqual(VM.tone(69), 'warn');
-  assert.strictEqual(VM.tone(70), 'hot');
+  assert.strictEqual(VM.tone(49), 'ok');
+  assert.strictEqual(VM.tone(50), 'warn');
+  assert.strictEqual(VM.tone(74), 'warn');
+  assert.strictEqual(VM.tone(75), 'hot');
   assert.strictEqual(VM.tone(89), 'hot');
   assert.strictEqual(VM.tone(90), 'crit');
   assert.strictEqual(VM.tone(100), 'crit');
+});
+
+test("the server's own grading outranks our thresholds", () => {
+  assert.strictEqual(VM.tone(10, 'critical'), 'crit',
+    'if Anthropic says critical, a low percentage does not overrule it');
+  assert.strictEqual(VM.tone(10, 'warning'), 'hot');
+  assert.strictEqual(VM.tone(10, 'normal'), 'ok', 'normal defers to the local scale');
+  assert.strictEqual(VM.tone(95, 'normal'), 'crit');
+  assert.strictEqual(VM.tone(10, 'something-new'), 'ok',
+    'an unknown grade must not silently become an alarm');
 });
 
 test('rows are named for the reader, not the API', () => {
@@ -53,21 +63,24 @@ test('a missing or unreadable reset date yields no label, not garbage', () => {
   assert.strictEqual(VM.resetLabel({ resetStyle: 'relative', resetsAt: 'not a date' }, 0), '');
 });
 
-test('failure reasons are instructions where an instruction exists', () => {
-  assert.strictEqual(VM.reasonLabel('token-expired'), 'open Claude Code once');
-  assert.strictEqual(VM.reasonLabel('unauthorized'), 'open Claude Code once');
-  assert.strictEqual(VM.reasonLabel('rate-limited'), 'rate-limited');
+test('failure reasons are diagnoses, and the button carries the action', () => {
+  assert.strictEqual(VM.reasonLabel('token-expired'), 'Your Claude Code sign-in expired');
+  assert.strictEqual(VM.reasonLabel('rate-limited'), 'Anthropic throttled the check');
+  assert.ok(!/click|open Claude Code once/i.test(VM.reasonLabel('token-expired')),
+    'the note must not repeat the instruction the button already gives');
   assert.strictEqual(VM.reasonLabel('never-seen-before'), 'never-seen-before',
     'an unknown reason must pass through, not vanish');
 });
 
-test('the stale strip names the reason and the retry time', () => {
+test('the status strip names the reason and the retry time', () => {
   const now = 0;
   assert.strictEqual(VM.staleLine('rate-limited', 8 * 60000, now),
-    'stale · rate-limited · next try in 8 min');
-  assert.strictEqual(VM.staleLine('network', null, now), 'stale · offline');
-  assert.strictEqual(VM.staleLine('server', 20000, now),
-    'stale · API unavailable · next try in 1 min', 'sub-minute retries round up, never to zero');
+    'Anthropic throttled the check — retrying in 8 min');
+  assert.strictEqual(VM.staleLine('network', null, now), 'No connection');
+  assert.ok(VM.staleLine('server', 20000, now).endsWith('retrying in 1 min'),
+    'sub-minute retries round up, never to zero');
+  assert.ok(!VM.staleLine('network', null, now).startsWith('stale'),
+    'the amber dot and the header already say the numbers are old');
 });
 
 test('wings: session on the left, the binding limit on the right', () => {
@@ -110,6 +123,24 @@ test('wing chips name what their number means', () => {
     'a long model name falls back to its monogram — a chip is not a marquee');
   assert.strictEqual(VM.wingTag({ kind: 'model', model: 'opus' }), 'opus');
   assert.strictEqual(VM.wingTag(null), '');
+});
+
+test('the pace line speaks only when the quota runs out first', () => {
+  const g = { id: 'session' };
+  assert.strictEqual(
+    VM.rateLine(g, { session: { exhaustsInMs: 40 * 60000, beforeReset: true } }),
+    'full in ~40 min');
+  assert.strictEqual(
+    VM.rateLine(g, { session: { exhaustsInMs: 40 * 60000, beforeReset: false } }), '',
+    'a limit that resets before you reach it needs no warning');
+  assert.strictEqual(VM.rateLine(g, {}), '');
+  assert.strictEqual(VM.rateLine(g, null), '');
+  assert.strictEqual(
+    VM.rateLine(g, { session: { exhaustsInMs: 130 * 60000, beforeReset: true } }),
+    'full in ~2 h 10 min');
+  assert.strictEqual(
+    VM.rateLine(g, { session: { exhaustsInMs: 125 * 60000, beforeReset: true } }),
+    'full in ~2 h', 'a stray five minutes is false precision on an estimate');
 });
 
 test('the panel says when 100% bills rather than stops', () => {

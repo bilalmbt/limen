@@ -15,14 +15,16 @@ around the notch instead of the screen edge.
 | State | What you see | When |
 |---|---|---|
 | **Dormant** | Nothing. The notch is just the notch. | 95% of the day |
-| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number: `5h ◔ 73%` for the rolling session on the left, and on the right the binding limit (`7d` for the all-models week, or the model by name: `Fable ◔ 52%`). Hovering a chip shows the full sentence. | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
+| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number: `5h ◔ 73%` for the rolling session on the left, and on the right the binding limit (`7d` for the all-models week, or the model by name: `Fable ◔ 52%`). | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
 | **Peek** | One line that drops below the notch for 4 seconds, then retracts. | A quota crosses an alert mark (80, 95) |
-| **Expanded** | Every gauge: session, weekly, per-model, with reset times and the **active limit** badge. | Hover the notch for 120 ms |
+| **Expanded** | Every gauge, led by its number: session, weekly, per-model, with reset times, the **active limit** badge, and — when the pace would exhaust a quota before its window resets — `full in ~44 min`. | Park on the notch, the tray, or `⌘⇧U` |
 
-Colors follow headroom, not model: green below 35%, yellow to 69%, orange
-to 89%, red beyond. A failed fetch never blanks the display — the last real
-numbers stay, dimmed, with the reason and the retry time
-(`stale · rate-limited · next try in 8 min`).
+Colors follow headroom, not model: green below 50%, amber to 74%, orange to
+89%, red beyond — a ramp that steps down in luminance as well as hue, so it
+survives greyscale and colour blindness. Marks on each track show where your
+alert thresholds sit and which you have crossed. A failed fetch never blanks
+the display — the last real numbers stay, with the reason and the retry time
+(`Anthropic throttled the check — retrying in 8 min`).
 
 ## Running it
 
@@ -89,19 +91,27 @@ top-center, that appears only while the island has something to say
 ## Behavior guarantees, and where they are enforced
 
 - **Never steals a click aimed elsewhere, never takes focus.** The window
-  ignores the mouse except while the cursor is on the island's own visible
-  surface — and that surface deliberately starts below the menu bar strip,
-  so a menu title or status item is never intercepted. On its own pixels the
-  island is clickable: the sign-in button, the refresh control, and a peek
-  that expands on click. Hover still comes from cursor sampling in the main
-  process and pure hit-testing (`src/notch.js`), not DOM events.
+  ignores the mouse except while the cursor is over the island's own drawn
+  pixels — a rect the *renderer measures and reports*, not one computed from
+  constants, because a constant drifts from what is painted and the gap
+  becomes an invisible window that eats clicks. The wings are deliberately
+  excluded: they sit in the menu-bar strip, where a click belongs to a menu.
+- **Reachable without a mouse.** `⌘⇧U` opens the panel, `⌘⇧I` toggles the
+  chips, and every action is in the tray menu — hover-only disclosure left
+  keyboard and VoiceOver users with no route to their own quota.
 - **Never shadows a menu.** The window sits at the `status` level: above
   the menu bar, *below* open menus, Spotlight, and dialogs.
-- **A graze across the top edge does not open it** (120 ms dwell), and the
-  keep-alive area always contains the trigger strip (the no-flicker
-  invariant — a test, not a hope).
-- **It cannot earn you an HTTP 429.** 120 s polling, exponential backoff to
-  a 15-minute cap, `Retry-After` honored, no fetch on hover during backoff.
+- **A graze across the top edge does not open it.** The dwell gates on
+  *stillness*, not presence: the strip is the route from the app menus to
+  Control Center, and a cursor crossing it at a normal pace is inside for
+  most of a second. The keep-alive area always contains the trigger strip
+  (the no-flicker invariant — a test, not a hope).
+- **It cannot earn you an HTTP 429.** Every one of the six things that can
+  request a refresh — the timer, a hover, the tray, the button, waking from
+  sleep, signing in — passes one gate with a wall-clock floor. A person may
+  waive the app's own 120 s pacing; nobody waives a backoff the server
+  imposed. The remaining wait is persisted, so a restart serves it out
+  rather than starting over.
 - **Alerts speak once** per level, per quota, per reset window, from a
   ledger that survives restarts.
 - **Your token is never copied, cached, or refreshed.** One network call,
@@ -130,45 +140,69 @@ top-center, that appears only while the island has something to say
   "notchWidth": null,
   "timeFormat": "auto",
   "osNotifications": false,
-  "shortcut": "CommandOrControl+Shift+I"
+  "contentProtection": true,
+  "shortcut": "CommandOrControl+Shift+I",
+  "showShortcut": "CommandOrControl+Shift+U"
 }
 ```
 
 `alertAt: []` silences peeks. `osNotifications: true` raises a system
 notification alongside the peek (same ledger, so still once).
-Config changes are read at launch in v1.
+`contentProtection` keeps the island out of screenshots, recordings and
+screen shares. Every value is sanitized on load — a wrong type degrades one
+setting rather than taking the app down. **Reload settings** in the tray menu
+applies changes without a restart.
 
 ## What is verified
 
 `npm test` runs 78 tests across the places where a mistake shows up
 immediately:
 
-- **Notch geometry, 18 tests** — the aspect rule against nine real display
+- **Notch geometry, 20 tests** — the aspect rule against nine real display
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,
   16:9 iMac shape), auto-hidden menu bars, negative display coordinates,
   clamshell fallback, and the keep-alive ⊇ hot-zone invariant.
-- **The state machine, 17 tests** — dwell, grace, peek timing, promotion,
-  alert-never-demotes, mouse-down collapse, wings orthogonality,
-  input immutability.
-- **Wording and tones, 12 tests** — tone thresholds, reset labels,
-  stale strip, wings selection.
-- **The data layer, 31 tests** — ported with the code they test:
-  normalization (a missing quota never becomes a displayed zero), backoff,
-  the alert ledger, persisted state.
+- **The state machine, 23 tests** — stillness-gated dwell, grace, re-entry,
+  the busy hold, peek timing, promotion, alert-never-demotes, mouse-down
+  collapse, wings orthogonality, input immutability.
+- **Burn rate, 12 tests** — mostly about staying quiet: two samples are a
+  coincidence, quantisation noise is not a trend, and a rolling-window reset
+  voids a rate rather than reporting a negative one.
+- **Wording and tones, 17 tests** — the luminance-ordered ramp, server-graded
+  severity outranking it, reset and pace labels, the status strip.
+- **The data layer, 37 tests** — normalization (a missing quota never becomes
+  a displayed zero), the one gate every fetch passes, the alert ledger,
+  persisted state.
 
-Two runtime checks complement them: `npm run spike` proves window placement
-over the menu bar strip on the actual machine, and the `ISLAND_CAPTURE`
-harness renders each visual state to a PNG for eyeballing or CI.
+## What is verified, and how
+
+`npm test` runs **109 tests** over the pure modules — notch geometry, the
+state machine, burn rate, wording and tones, quota normalization, backoff,
+alerts, persisted state. Three runtime checks complement them, because unit
+tests cannot see pixels:
+
+```bash
+npm run spike        # can a window sit over the menu bar strip? exit 0 = yes
+ISLAND_CAPTURE=/tmp/a.png ISLAND_SCENE=full npm start          # a state, as PNG
+ISLAND_CAPTURE=/tmp/b.png ISLAND_CAPTURE_DELAY=130 ... npm start   # mid-animation
+```
+
+Captures are hermetic — scenes state their own wings and never inherit your
+config, so the same scene renders identically on any machine.
 
 ## Known limits of v1
 
-- English only (the i18n structure from the ancestor project ports cleanly;
-  it just hasn't been).
-- No settings window yet — the config file and the tray menu are it.
+- English only (the ancestor's i18n structure ports cleanly; deferred until
+  the wording settles).
+- No settings window — the config file, the tray menu, and **Reload
+  settings** are it.
 - Mouse-down collapse is approximated by the window level (open menus
   outrank the island) rather than a global event tap.
 - Fullscreen behavior beyond the spike (level survival across Space
   round-trips) hasn't been long-run soak-tested yet.
+- No signed build or auto-updater yet: `git pull && npm install && npm test`.
+- Burn rate needs ~10 minutes of samples before it will say anything, and
+  says nothing at all unless a quota would run out before its window resets.
 
 ## License
 

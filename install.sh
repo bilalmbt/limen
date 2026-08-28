@@ -26,33 +26,26 @@ ELECTRON="$DIR/node_modules/.bin/electron"
 [ -x "$ELECTRON" ] || { echo "Electron did not install correctly."; exit 1; }
 
 echo "Registering the login item…"
-mkdir -p "$HOME/Library/LaunchAgents"
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$ELECTRON</string>
-    <string>$DIR</string>
-  </array>
-  <key>WorkingDirectory</key><string>$DIR</string>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key><false/>
-  </dict>
-  <key>StandardOutPath</key><string>$DIR/island.log</string>
-  <key>StandardErrorPath</key><string>$DIR/island.log</string>
-</dict>
-</plist>
-EOF
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+LOG="$HOME/Library/Logs/claude-island.log"
 
-launchctl unload "$PLIST" 2>/dev/null || true
-launchctl load "$PLIST"
+# Built with plutil rather than a heredoc: a project path containing &, < or
+# > would otherwise produce invalid XML, and a crafted one could inject plist
+# keys. plutil handles the escaping and validates the result.
+/usr/bin/plutil -create xml1 "$PLIST"
+/usr/bin/plutil -insert Label -string "$LABEL" "$PLIST"
+/usr/bin/plutil -insert ProgramArguments -json '[]' "$PLIST"
+/usr/bin/plutil -insert ProgramArguments.0 -string "$ELECTRON" "$PLIST"
+/usr/bin/plutil -insert ProgramArguments.1 -string "$DIR" "$PLIST"
+/usr/bin/plutil -insert WorkingDirectory -string "$DIR" "$PLIST"
+/usr/bin/plutil -insert RunAtLoad -bool true "$PLIST"
+/usr/bin/plutil -insert KeepAlive -json '{"SuccessfulExit": false}' "$PLIST"
+/usr/bin/plutil -insert StandardOutPath -string "$LOG" "$PLIST"
+/usr/bin/plutil -insert StandardErrorPath -string "$LOG" "$PLIST"
+/usr/bin/plutil -lint "$PLIST" >/dev/null
+
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo
 echo "Done. The island is running — hover the notch (or the top-center of"

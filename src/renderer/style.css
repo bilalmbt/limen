@@ -1,28 +1,45 @@
-/* The island: black glass under a black notch. The window is transparent and
-   click-through; everything here is paint, nothing is a control. */
+/* The island: black glass under a black notch. The window is transparent;
+   everything here is paint, and only the drawn surface takes the mouse. */
 
 :root {
   --hot-h: 37px;      /* notch band height, set from geometry */
   --notch-w: 189px;   /* notch width, set from geometry */
   --panel-w: 400px;   /* expanded panel width, set from geometry */
+
   --ink: #F2F2F5;
-  --ink-dim: rgba(255, 255, 255, 0.55);
-  --ink-faint: rgba(255, 255, 255, 0.38);
+  --ink-dim: rgba(255, 255, 255, 0.62);
+  --ink-faint: rgba(255, 255, 255, 0.42);
   --glass: #0A0A0C;
   --edge: rgba(255, 255, 255, 0.07);
-  --track: rgba(255, 255, 255, 0.13);
-  --ok: #30D158;
-  --warn: #FFD60A;
-  --hot: #FF9F0A;
-  --crit: #FF453A;
+  --track: rgba(255, 255, 255, 0.16);
   --accent: #E1815F;
 
-  /* ---- motion ----
-     A real damped spring (ζ≈0.68, ~5% overshoot), sampled as linear() stops,
-     because the island should arrive with mass rather than ease into place.
-     Exit is a different motion on purpose: quicker and fully damped — an
-     overshoot on the way out reads as indecision. Content resolves on a calm
-     curve while the container springs; one spring per moment is the rule. */
+  /* Severity, ordered by LUMINANCE as well as hue. The Apple system tones
+     are not a ramp: #FFD60A measures L 0.69 — brighter than the white text,
+     so caution outshouted danger — and #30D158 (0.469) sat within 0.009 of
+     #FF9F0A (0.461), which is the same grey to a greyscale or red-green
+     colourblind viewer. These step down cleanly: 0.32 / 0.42 / 0.46 / 0.26,
+     with crit winning attention through saturation and a glow rather than
+     brightness. */
+  --ok: #2FAF52;
+  --warn: #D9A62E;
+  --hot: #FF9F0A;
+  --crit: #FF453A;
+
+  /* Five type steps, not eleven. Several of the old sizes differed by 0.5px,
+     which is imperceptible and only costs the design its sense of system. */
+  --t-title: 13px;
+  --t-value: 15px;   /* the hero figure: the reason the widget exists */
+  --t-lead: 12.5px;
+  --t-body: 11.5px;
+  --t-meta: 10px;
+  --t-micro: 8.5px;
+
+  /* motion — a real damped spring (ζ≈0.68, ~5% overshoot) sampled as
+     linear() stops, because the island should arrive with mass. Exit is a
+     different motion on purpose: an overshoot on the way out reads as
+     indecision. Content resolves on a calm curve while the container
+     springs; one spring per moment. */
   --spring: linear(0, 0.0988, 0.309, 0.5382, 0.7363, 0.8835, 0.9788, 1.0309,
                    1.0517, 1.0531, 1.0444, 1.032, 1.0201, 1.0105, 1.0038,
                    0.9997, 0.9977, 0.998, 0.9989, 0.9997, 1);
@@ -56,25 +73,23 @@ html, body {
   background: #000;
   border-radius: 0 0 11px 11px;
   transition: opacity 0.25s ease;
+  /* Above the panel. Both are positioned and the panel comes later in the
+     DOM, so without this the panel painted over the notch's bottom 10px —
+     shearing off the rounded mouth that makes it read as a notch. */
+  z-index: 4;
 }
 /* A side a wing joins loses its rounding: the band continues, so a curved
    corner there would read as a bite out of one continuous shape. */
 #fakenotch.join-left { border-bottom-left-radius: 0; }
 #fakenotch.join-right { border-bottom-right-radius: 0; }
-/* Above the panel. Both are positioned and the panel comes later in the DOM,
-   so without this the panel painted over the notch's bottom 10px — shearing
-   off the very rounded mouth that makes it read as a notch, and leaving the
-   panel's square corners poking out on either side. */
-#fakenotch { z-index: 4; }
 
-/* ---- ambient wings: black chips flanking the notch, satellites of the
-        island. Each chip is the FULL height of the notch band, flush with
-        the top edge and rounded only at the bottom — the same silhouette as
-        the notch, so the trio reads as one split surface. The tag says what
-        the number means. ---- */
-/* Above the panel: its top edge tucks under the band, and the band's text
-   must never be clipped by the panel surface sliding beneath it. */
-#wings { position: absolute; top: 0; left: 0; right: 0; height: var(--hot-h); z-index: 5; }
+/* ---- ambient wings: black chips flanking the notch, at its full height,
+        flush with the top edge so the trio reads as one split surface ---- */
+#wings {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: var(--hot-h);
+  z-index: 5;   /* the band's text is never clipped by the panel beneath it */
+}
 .wing {
   position: absolute;
   top: 0;
@@ -87,75 +102,71 @@ html, body {
   /* No rim: the notch has none, and a band must be one uniform black. */
   background: #000;
   border: none;
-  font-size: 12.5px;
+  font-size: var(--t-lead);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: #FFFFFF;
   white-space: nowrap;
-  /* The corners morph with the panel rather than snapping square. */
   transition: opacity 0.25s ease, border-radius var(--spring-ms) var(--spring);
 }
 .wing .tag {
-  font-size: 10.5px;
+  font-size: var(--t-meta);
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--ink-dim);
 }
+/* Tone reaches the number too. In a 14px ring alone, a peripheral glance at
+   the menu bar could not tell healthy from hot. */
+.wing .pct { color: #FFFFFF; background: none; }
+.wing .pct.tone-hot { color: var(--hot); }
+.wing .pct.tone-crit { color: var(--crit); }
 .wing .ring { width: 14px; height: 14px; }
 /* Flush against the notch: the inner corner is square and tucks 2px under
-   the notch edge, so a slightly-off width estimate can never open a seam.
-   Only the outer corner keeps the notch's rounding — one continuous shape. */
-.wing.left {
-  right: calc(50% + var(--notch-w) / 2 - 2px);
-  border-radius: 0 0 0 11px;
-}
-.wing.right {
-  left: calc(50% + var(--notch-w) / 2 - 2px);
-  border-radius: 0 0 11px 0;
-}
+   the notch edge, so a slightly-off width estimate can never open a seam. */
+.wing.left { right: calc(50% + var(--notch-w) / 2 - 2px); border-radius: 0 0 0 11px; }
+.wing.right { left: calc(50% + var(--notch-w) / 2 - 2px); border-radius: 0 0 11px 0; }
 .wing.empty { display: none; }
 #wings.merged .wing.left { border-bottom-left-radius: 0; }
 #wings.merged .wing.right { border-bottom-right-radius: 0; }
+/* Alone, the chips are hardware and cast nothing; with the panel behind them
+   its shadow already carries the whole shape. */
+#wings:not(.merged) .wing { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28); }
 
-/* ---- rings: a conic gauge with a truly punched-out center (mask, not
+/* ---- rings: a conic gauge with a truly punched-out centre (mask, not
         paint, so the menu bar shows through the hole of a wing ring) ---- */
 .ring {
   --p: 0;
   --tone: var(--ok);
+  --stroke: 26%;   /* proportional, so the stroke:diameter ratio holds */
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: conic-gradient(var(--tone) calc(var(--p) * 1%), rgba(255, 255, 255, 0.22) 0);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+  background: conic-gradient(var(--tone) calc(var(--p) * 1%), var(--track) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--stroke) - 0.5px), #000 calc(100% - var(--stroke)));
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--stroke) - 0.5px), #000 calc(100% - var(--stroke)));
   flex: none;
 }
 .ring.big { width: 16px; height: 16px; }
 
 /* ---- shared island surface ----
-   The top of the surface is the notch's own true black and only BECOMES
-   glass once it has cleared the band. Painting it glass throughout drew a
-   400px-wide tonal step exactly at the seam — ten 8-bit levels is a faint
-   patch difference but a very visible edge, and against a real bezel it
-   would be guaranteed rather than incidental. */
+   The top is the notch's own true black and only BECOMES glass once it has
+   cleared the band. Painting it glass throughout drew a 400px-wide tonal
+   step exactly at the seam — a faint patch difference but a very visible
+   edge, and guaranteed against a real bezel. It also lights the surface
+   from the top, which a flat slab lacks. */
 #peek, #panel {
   position: absolute;
   left: 50%;
   background: linear-gradient(#000 0, #000 14px, var(--glass) 46px);
   border: 1px solid var(--edge);
   border-top: none;
-  /* Scaled from the top edge: the island unfurls out of the notch rather
-     than zooming toward the viewer. */
   transform-origin: top center;
   will-change: transform, opacity;
-  /* The closed state's transition — i.e. the exit. */
   transition:
     opacity var(--exit-ms) var(--exit),
     transform var(--exit-ms) var(--exit),
     box-shadow var(--exit-ms) var(--exit);
 }
-/* The open state overrides it: entrance rides the spring, and the shadow
-   deepens with the morph so the surface reads as lifting off the desktop. */
 #peek:not(.off), #panel:not(.off) {
   transition:
     opacity 150ms ease-out,
@@ -164,24 +175,32 @@ html, body {
 }
 .off { opacity: 0; pointer-events: none; }
 
-/* scaleY leads scaleX: it unfurls downward, it does not inflate. */
+/* scaleY leads scaleX: it unfurls downward, it does not inflate. Shadows are
+   layered — a contact shadow plus two spreads — because one big blur reads
+   as a grey smudge against a bright desktop rather than a lift. */
 #peek.off {
   transform: translateX(-50%) translateY(-10px) scaleY(0.82) scaleX(0.94);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
 }
 #peek:not(.off) {
   transform: translateX(-50%) translateY(0) scale(1);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 8px 18px rgba(0, 0, 0, 0.32),
+    0 20px 40px rgba(0, 0, 0, 0.26);
 }
-/* The panel is positioned by measurement (left/width set from the band's
-   real edges), so its morph never carries a translateX. */
+/* The panel is positioned by measurement (left/width from the band's real
+   edges), so its morph never carries a translateX. */
 #panel.off {
   transform: translateY(-12px) scaleY(0.84) scaleX(0.965);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 #panel:not(.off) {
   transform: translateY(0) scale(1);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 10px 24px rgba(0, 0, 0, 0.34),
+    0 26px 56px rgba(0, 0, 0, 0.30);
 }
 #fakenotch.off, #wings .wing.off, #wings.off .wing { opacity: 0; }
 
@@ -193,6 +212,7 @@ html, body {
 #panel.entering .head,
 #panel.entering #stale,
 #panel.entering .row,
+#panel.entering #ceiling,
 #panel.entering .empty-note,
 #panel.entering .btn {
   animation: islandContentIn 360ms var(--calm) both;
@@ -201,6 +221,7 @@ html, body {
 #panel.entering #stale { animation-delay: 75ms; }
 #panel.entering .empty-note { animation-delay: 90ms; }
 #panel.entering .btn { animation-delay: 170ms; }
+#panel.entering #ceiling { animation-delay: 240ms; }
 #panel.entering .row { animation-delay: calc(85ms + var(--i, 0) * 55ms); }
 
 @media (prefers-reduced-motion: reduce) {
@@ -208,17 +229,18 @@ html, body {
   #peek.off, #peek:not(.off) { transform: translateX(-50%); }
   #panel.off, #panel:not(.off) { transform: none; }
   #panel.entering .head, #panel.entering #stale, #panel.entering .row,
-  #panel.entering .empty-note, #panel.entering .btn { animation: none; }
+  #panel.entering #ceiling, #panel.entering .empty-note,
+  #panel.entering .btn { animation: none; }
 }
 
 /* ---- peek: one line, event-driven ---- */
 #peek {
   top: calc(var(--hot-h) - 8px);
   display: flex;
-  align-items: flex-start;
+  align-items: flex-start;   /* the ring sits on the title's cap band */
   gap: 10px;
-  /* The top 8px are tucked under the band, so the visual top padding is
-     20-8=12, matching the 11 below. */
+  /* The top 8px are tucked under the band, so 20 above reads as 12 — level
+     with the 11 below. */
   padding: 20px 20px 11px;
   /* Always wider than the notch it comes out of: at content width a short
      alert ("All models 4%") was narrower than the notch and vanished into
@@ -227,9 +249,17 @@ html, body {
   justify-content: center;
   border-radius: 0 0 18px 18px;
   white-space: nowrap;
+  cursor: pointer;
 }
-.peek-title { font-size: 12.5px; font-weight: 600; }
-.peek-sub { font-size: 10px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.peek-title {
+  font-size: var(--t-lead);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;   /* the number ticks; it must not jitter */
+}
+.peek-title .num { margin-left: 2px; background: none; color: var(--ink); }
+.peek-title .num.tone-hot { color: var(--hot); }
+.peek-title .num.tone-crit { color: var(--crit); }
+.peek-sub { font-size: var(--t-meta); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 
 /* ---- panel: every gauge ---- */
 #panel {
@@ -238,12 +268,23 @@ html, body {
   padding: 22px 20px 16px;
   border-radius: 0 0 22px 22px;
 }
-.head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
-.star { color: var(--accent); font-size: 13px; }
-.title { font-size: 13px; font-weight: 700; }
+#panel.narrow { width: 320px; }
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* A header needs more air beneath it than rows have between them, or it
+     reads as a fourth row rather than a title. */
+  padding-bottom: 11px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.star { color: var(--accent); font-size: var(--t-title); line-height: 1; }
+.title { font-size: var(--t-title); font-weight: 700; }
 .when {
   margin-left: auto;
-  font-size: 9.5px;
+  font-size: var(--t-meta);
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -266,94 +307,142 @@ html, body {
   position: relative; top: 1px;   /* centre on the ink, not the line box */
 }
 
-.row { margin-bottom: 12px; }
+/* A row leads with its number. The percentage is the reason the widget
+   exists and used to be its smallest, dimmest text, sitting under a bar
+   that already said it — the panel stated "73" three times and never once
+   loudly. */
+.row { margin-bottom: 14px; }
 .row:last-child { margin-bottom: 2px; }
-.row-head { display: flex; align-items: baseline; margin-bottom: 5px; }
-.row-name { font-size: 11.5px; font-weight: 600; }
+.row-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.row-name { font-size: var(--t-body); font-weight: 600; }
+.row-value {
+  margin-left: auto;
+  font-size: var(--t-value);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
 .badge {
-  font-size: 7.5px;
-  letter-spacing: 0.08em;
+  /* Structure, not severity: this says "the binding constraint", not
+     "70-90% consumed". Borrowing --hot made a green row wear an orange
+     warning. The brand accent had exactly one home in the panel; now two. */
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  border: 1px solid var(--hot);
-  color: var(--hot);
+  color: var(--accent);
+  border: 1px solid rgba(225, 129, 95, 0.55);
+  background: rgba(225, 129, 95, 0.10);
   border-radius: 99px;
-  padding: 1px 6px;
+  padding: 1.5px 6px;
   margin-left: 7px;
   vertical-align: 1px;
-}
-.row-reset {
-  margin-left: auto;
-  font-size: 9px;
-  color: var(--ink-dim);
-  font-variant-numeric: tabular-nums;
 }
 .bar {
   height: 5px;
   border-radius: 99px;
   background: var(--track);
   overflow: hidden;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
 }
 /* Width, not scaleX: scaling would squash the rounded cap. The bar grows
-   into place on entrance, and glides between values when a refresh lands,
-   so a quota ticking up is a movement rather than a jump. */
+   into place on entrance and glides between values on refresh. min-width
+   keeps a nonzero quota visibly nonzero — below ~2.5% the two caps consumed
+   the whole fill and 1% rendered identically to 3%. */
 .bar > i {
   display: block;
   height: 100%;
+  min-width: 5px;
   border-radius: 99px;
   transition: width 720ms var(--calm), background-color 420ms ease;
 }
-.row-pct { font-size: 9px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.row-reset {
+  font-size: var(--t-meta);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.row-rate { color: var(--ink-dim); }
 
-.tone-ok { background: var(--ok); }
-.tone-warn { background: var(--warn); }
-.tone-hot { background: var(--hot); }
-.tone-crit { background: var(--crit); }
+/* A fill carries the tone as paint; text carries it as ink. Scoped, because
+   one shared .tone-* rule setting `background` turned every toned label into
+   a highlighter swatch. */
+.bar > i.tone-ok { background: var(--ok); }
+.bar > i.tone-warn { background: var(--warn); }
+.bar > i.tone-hot { background: var(--hot); }
+.bar > i.tone-crit {
+  background: var(--crit);
+  box-shadow: 0 0 6px rgba(255, 69, 58, 0.55);   /* danger wins on attention */
+}
+
+/* Ink stays white until it means something: colouring every number would
+   make the palette decorative and cost the hot ones their signal. */
+.row-value { color: var(--ink); }
+.row-value.tone-hot { color: var(--hot); }
+.row-value.tone-crit { color: var(--crit); }
 
 /* Dim the evidence, never the words. Fading the whole row multiplied with
-   --ink-dim and pushed the small print to 3.7:1 — under AA, in the one state
+   --ink-dim and pushed the small print under WCAG AA, in the one state
    where reading the small print matters most. */
 #panel.stale .bar,
 #panel.stale .row-reset { opacity: 0.7; }
+
+/* Threshold marks: where the alerts sit, and which have been crossed. A
+   peek lasts 4 seconds once; without residue a missed warning never
+   existed. This also gives the thresholds a non-colour channel. */
+.bar { position: relative; }
+.tick {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.55);
+  z-index: 1;
+}
+.tick.crossed { background: rgba(0, 0, 0, 0.45); }
 
 /* What a full bar means on this account, when it isn't "you are stopped". */
 #ceiling {
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--edge);
-  font-size: 9.5px;
+  font-size: var(--t-meta);
   color: var(--ink-dim);
 }
 #ceiling.off { display: none; }
 
-/* the empty island: no gauges yet, or no session found */
-.empty-note {
-  font-size: 11px;
-  color: var(--ink-dim);
-  padding: 4px 0 2px;
-}
 /* ---- the island's own controls ---- */
 .iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;    /* a real target, not a 12px glyph */
+  padding: 0;
   margin-left: 8px;
+  margin-right: -7px;           /* lands the glyph on the right rail */
+  position: relative; top: 3px;
+  border: none; border-radius: 50%;
+  background: none;
   font: inherit;
   font-size: 12px;
+  line-height: 1;
   color: var(--ink-dim);
-  background: none;
-  border: none;
-  padding: 0 2px;
   cursor: pointer;
-  transition: color 160ms ease;
+  transition: color 160ms ease, background-color 160ms ease;
 }
-.iconbtn:hover { color: var(--ink); }
-/* The control answers the click itself, before the data comes back. */
+.iconbtn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+.iconbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.iconbtn[disabled] { opacity: 0.35; cursor: default; }
+/* The control answers the click itself, before the data comes back — and
+   keeps spinning for exactly as long as the fetch is really in flight. */
 @keyframes iconSpin { to { transform: rotate(360deg); } }
-.iconbtn.spinning { animation: iconSpin 680ms var(--calm); }
+.iconbtn.spinning { animation: iconSpin 900ms linear infinite; }
+
 .btn {
   display: inline-block;
-  margin: 8px 0 4px;
+  margin: 10px 0 4px;
   padding: 6px 14px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--t-body);
   font-weight: 600;
   color: var(--accent);
   border: 1px solid var(--accent);
@@ -364,5 +453,12 @@ html, body {
 }
 .btn:hover { background: rgba(225, 129, 95, 0.22); }
 .btn:active { transform: scale(0.97); }
+.btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .btn[disabled] { opacity: 0.5; cursor: default; }
-#peek { cursor: pointer; }
+
+/* the empty island: no gauges yet, or no session found */
+.empty-note {
+  font-size: var(--t-body);
+  color: var(--ink);    /* the diagnosis, not dimmer than the button */
+  padding: 2px 0 0;
+}

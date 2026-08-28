@@ -168,14 +168,39 @@ function normalize(raw) {
     });
   };
 
-  for (const [key, name] of [['seven_day_opus', 'Opus'], ['seven_day_sonnet', 'Sonnet']]) {
-    if (raw[key]) addModel(name, pct(raw[key]), raw[key].resets_at, false);
+  // Every seven_day_* bucket, not a hardcoded pair. Anthropic ships new
+  // surfaces, and a fixed list silently drops whatever it has not heard of.
+  // Unrecognised keys are titled from the key itself; internal codenames are
+  // hidden rather than shown to a user who would not recognise them.
+  const KNOWN_MODELS = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
+  for (const key of Object.keys(raw)) {
+    if (!key.startsWith('seven_day_')) continue;
+    const block = raw[key];
+    if (!block || typeof block !== 'object' || pct(block) === null) continue;
+    const slug = key.slice('seven_day_'.length);
+    const name = KNOWN_MODELS[slug];
+    if (!name) continue;
+    addModel(name, pct(block), block.resets_at, false);
   }
   for (const limit of raw.limits || []) {
     const name = limit && limit.kind === 'weekly_scoped' && limit.scope && limit.scope.model
       ? limit.scope.model.display_name
       : null;
     if (name) addModel(name, pct({ utilization: limit.percent }), limit.resets_at, limit.is_active);
+  }
+
+  // The server grades its own limits. When it says a limit is past "normal",
+  // trust it over our local thresholds — that keeps the tone scale correct
+  // if Anthropic moves where the cliff is.
+  for (const limit of raw.limits || []) {
+    if (!limit || !limit.severity || limit.severity === 'normal') continue;
+    const target = limit.kind === 'session' ? 'session'
+      : limit.kind === 'weekly_all' ? 'weekly'
+      : limit.scope && limit.scope.model
+        ? `model-${String(limit.scope.model.display_name).toLowerCase()}`
+        : null;
+    const g = target && gauges.find((x) => x.id === target);
+    if (g) g.severity = limit.severity;
   }
 
   // Which limit is biting right now: worth pointing out, it is the one that
@@ -233,5 +258,14 @@ async function fetchUsage() {
 module.exports = { fetchUsage, readCredentials, normalize, reasonFor };
 
 if (require.main === module) {
-  fetchUsage().then((r) => console.log(JSON.stringify(r, null, 2)));
+  // `--oneline` is for a tmux status bar, a shell prompt, or a Claude Code
+  // statusline — the people who want the number without a widget at all.
+  const oneline = process.argv.includes('--oneline');
+  fetchUsage().then((r) => {
+    if (!oneline) return console.log(JSON.stringify(r, null, 2));
+    if (!r.ok) return console.log(`claude: ${r.reason}`);
+    console.log(r.gauges
+      .map((g) => `${g.kind === 'session' ? '5h' : g.kind === 'weekly' ? '7d' : g.model} ${g.percent}%`)
+      .join('  '));
+  });
 }

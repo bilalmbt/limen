@@ -20,19 +20,23 @@ const PEEK = 'peek';
 const EXPANDED = 'expanded';
 
 const T = {
-  dwellMs: 120,   // hover this long before expanding: the top edge is a corridor
-  graceMs: 380,   // leaving keep-alive starts this timer before collapsing
-  peekMs: 4000    // how long an alert peek stays out
+  dwellMs: 120,      // hover this long before expanding: the top edge is a corridor
+  graceMs: 380,      // leaving keep-alive starts this timer before collapsing
+  peekMs: 4000,      // how long an alert peek stays out
+  reentryMs: 1500,   // re-opening this soon skips the dwell: intent is established
+  stillPt: 6         // movement under this between samples counts as parked
 };
 
 function create() {
   return {
     state: DORMANT,
     wings: false,
+    busy: false,      // a task is running IN the panel; it must not collapse
     dwellSince: null,
     hideAt: null,
     peekUntil: null,
-    peekGaugeId: null
+    peekGaugeId: null,
+    lastCollapseAt: null
   };
 }
 
@@ -43,14 +47,25 @@ function create() {
  * @param {object} t  timing overrides, for tests
  * @returns {{m: object, effects: string[]}}
  */
-function tick(m, { inHot, inKeepAlive, now }, t = T) {
+function tick(m, { inHot, inKeepAlive, now, moved = 0 }, t = T) {
   const effects = [];
   const next = { ...m };
 
   if (next.state === DORMANT) {
     if (inHot) {
-      if (next.dwellSince === null) {
-        next.dwellSince = now;
+      // Dwell on STILLNESS, not presence. The top-centre strip is the route
+      // from the app menus to Control Center; a cursor crossing it at a
+      // normal pace is inside for the best part of a second and used to
+      // open the panel every single time. A deliberate hover parks.
+      const parked = moved <= t.stillPt;
+      const quickReturn = next.lastCollapseAt !== null &&
+        now - next.lastCollapseAt <= t.reentryMs;
+      if (!parked && !quickReturn) {
+        next.dwellSince = null;
+      } else if (next.dwellSince === null) {
+        // Coming straight back is intent already established: re-opening
+        // should not re-charge the whole dwell.
+        next.dwellSince = quickReturn ? now - t.dwellMs : now;
       } else if (now - next.dwellSince >= t.dwellMs) {
         next.state = EXPANDED;
         next.dwellSince = null;
@@ -64,13 +79,16 @@ function tick(m, { inHot, inKeepAlive, now }, t = T) {
   }
 
   if (next.state === EXPANDED) {
-    if (inKeepAlive) {
+    // A task running in the panel holds it open: the sign-in button's own
+    // progress used to vanish the moment the cursor left.
+    if (inKeepAlive || next.busy) {
       next.hideAt = null;
     } else if (next.hideAt === null) {
       next.hideAt = now + t.graceMs;
     } else if (now >= next.hideAt) {
       next.state = DORMANT;
       next.hideAt = null;
+      next.lastCollapseAt = now;
       effects.push('collapse');
     }
     return { m: next, effects };
@@ -116,10 +134,12 @@ function alert(m, gaugeId, now, t = T) {
  * (The shell wires this where it can observe clicks; the window level is
  * chosen so open menus outrank the island even when it cannot.)
  */
-function mouseDown(m) {
+function mouseDown(m, now = 0) {
   const next = { ...m, dwellSince: null, hideAt: null };
+  if (m.busy) return { m: next, effects: [] };   // a running task keeps its panel
   if (m.state === EXPANDED) {
     next.state = DORMANT;
+    next.lastCollapseAt = now;
     return { m: next, effects: ['collapse'] };
   }
   if (m.state === PEEK) {

@@ -13,7 +13,8 @@ const state = {
   data: { ok: false, reason: 'loading', gauges: [] },
   panelOpen: false,
   peek: null,        // { gaugeId } or null
-  wings: false
+  wings: false,
+  signin: null       // { status: 'working' | 'done' | 'needs-terminal' }
 };
 
 // The shape currently in the DOM, so rows are rebuilt only when they must be.
@@ -40,6 +41,13 @@ window.island.onPanel((open) => {
 });
 window.island.onPeek((p) => { state.peek = p || null; render(); });
 window.island.onWings((on) => { state.wings = on === true; render(); });
+window.island.onBusy((on) => {
+  // The spin reflects a real fetch. It used to be a fixed 680ms animation
+  // fired on click, so it played even when the request was suppressed and
+  // stopped long before a slow one finished — a placebo either way.
+  $('#refresh-btn').classList.toggle('spinning', on === true);
+});
+window.island.onSignIn((s) => { state.signin = s || null; render(); });
 
 // Relative labels ("resets in 51 min") drift; keep them honest. Rows are
 // reconciled in place, so this tick never disturbs a running animation.
@@ -47,19 +55,8 @@ setInterval(() => { if (state.panelOpen || state.peek) render(); }, 30000);
 
 // The two fixed controls. The window only takes the mouse while the cursor
 // is over the island's surface, so these never intercept an outside click.
-$('#refresh-btn').addEventListener('click', (e) => {
-  spin(e.currentTarget);
-  window.island.act('refresh');
-});
+$('#refresh-btn').addEventListener('click', () => window.island.act('refresh'));
 $('#peek').addEventListener('click', () => window.island.act('expand'));
-
-/** A control should answer the click itself, before the data comes back. */
-function spin(btn) {
-  btn.classList.remove('spinning');
-  void btn.offsetWidth;          // restart the animation on a rapid second click
-  btn.classList.add('spinning');
-  setTimeout(() => btn.classList.remove('spinning'), 700);
-}
 
 /**
  * Replay the opening choreography: the surface springs out, then the rows
@@ -83,9 +80,9 @@ function beginEntrance() {
 function locale() { return (state.geometry && state.geometry.locale) || undefined; }
 function timeFormat() { return (state.geometry && state.geometry.timeFormat) || 'auto'; }
 
-function setRing(el, percent) {
+function setRing(el, percent, severity) {
   el.style.setProperty('--p', String(Math.max(0, Math.min(100, percent))));
-  el.style.setProperty('--tone', `var(--${VM.tone(percent)})`);
+  el.style.setProperty('--tone', `var(--${VM.tone(percent, severity)})`);
 }
 
 function render() {
@@ -152,9 +149,12 @@ function renderWings() {
     el.classList.toggle('empty', !gauge);
     if (!gauge) return;
     el.querySelector('.tag').textContent = VM.wingTag(gauge);
-    setRing(el.querySelector('.ring'), gauge.percent);
-    el.querySelector('.pct').textContent = `${gauge.percent}%`;
-    el.title = `${VM.rowLabel(gauge)} — ${gauge.percent}% used`;
+    setRing(el.querySelector('.ring'), gauge.percent, gauge.severity);
+    const pct = el.querySelector('.pct');
+    // Tone reaches the number, not just the 14px ring: at a peripheral
+    // glance the ring alone could not separate healthy from hot.
+    pct.className = `pct tone-${VM.tone(gauge.percent, gauge.severity)}`;
+    pct.textContent = `${gauge.percent}%`;
   };
   fill('left', model.left);
   fill('right', model.right);
@@ -183,9 +183,18 @@ function renderPeek() {
     : null;
   el.classList.toggle('off', !gauge);
   if (!gauge) return;
-  setRing(el.querySelector('.ring'), gauge.percent);
-  el.querySelector('.peek-title').textContent = `${VM.rowLabel(gauge)} ${gauge.percent}%`;
+  setRing(el.querySelector('.ring'), gauge.percent, gauge.severity);
+  // The number is the entire point of an alert; as one uniform run it got no
+  // emphasis and no tone, leaving the ring as the only red thing in a red
+  // warning.
+  const title = el.querySelector('.peek-title');
+  title.textContent = `${VM.rowLabel(gauge)} `;
+  const num = document.createElement('span');
+  num.className = `num tone-${VM.tone(gauge.percent, gauge.severity)}`;
+  num.textContent = `${gauge.percent}%`;
+  title.appendChild(num);
   el.querySelector('.peek-sub').textContent =
+    VM.rateLine(gauge, state.data.trend) ||
     VM.resetLabel(gauge, Date.now(), locale(), timeFormat());
 }
 
@@ -201,6 +210,16 @@ function alignPanel(panel) {
   const center = document.documentElement.clientWidth / 2;
   let left = center - g.panelWidth / 2;
   let width = g.panelWidth;
+
+  // A 400pt slab holding one line and a button reads unresolved. Sized here
+  // rather than by a class, because the inline width below would win.
+  if (!(state.data.gauges || []).length) {
+    width = 320;
+    left = center - width / 2;
+    panel.style.left = `${left}px`;
+    panel.style.width = `${width}px`;
+    return;
+  }
 
   const model = VM.wingsModel(state.data.gauges);
   if (state.wings && model) {
@@ -240,14 +259,21 @@ function renderPanel() {
   const whenWord = !gauges.length ? 'checked' : (stale ? 'as of' : 'refreshed');
   $('#panel .when').textContent = when ? `${whenWord} ${when}` : '';
 
-  // With no numbers at all the empty note carries the message alone; a stale
-  // strip on top of it would say the same thing twice.
+  // A pending retry is shown even with no gauges: it used to be suppressed
+  // precisely when there were no numbers to look at, leaving the word
+  // "rate-limited" alone on a black card with no ETA and a 15-minute silence.
+  const pendingRetry = Boolean(d.retryAt && d.retryAt > Date.now());
   const staleEl = $('#stale');
-  staleEl.classList.toggle('off', !stale || !gauges.length);
-  if (stale && gauges.length) {
+  const showStale = stale && (gauges.length || pendingRetry) &&
+    !(!gauges.length && VM.isCredentialProblem(d.reason));
+  staleEl.classList.toggle('off', !showStale);
+  if (showStale) {
     staleEl.querySelector('.stale-text').textContent =
       VM.staleLine(d.reason, d.retryAt, Date.now());
   }
+
+  // A 400pt slab holding one line and a button reads unresolved.
+  panel.classList.toggle('narrow', !gauges.length);
 
   const note = VM.ceilingNote(d);
   const ceilingEl = $('#ceiling');
@@ -274,9 +300,9 @@ function renderPanel() {
       const note = document.createElement('div');
       note.className = 'empty-note';
       // A successful answer with no limits is its own case, not an "unknown" error.
-      note.textContent = d.ok ? 'no limits exposed for this account' : VM.reasonLabel(d.reason);
+      note.textContent = d.ok ? 'No limits exposed for this account' : VM.reasonLabel(d.reason);
       rowsEl.appendChild(note);
-      appendSignIn(rowsEl, d.reason);
+      syncSignIn(rowsEl, d.reason);
       return;
     }
     gauges.forEach((gauge, i) => rowsEl.appendChild(buildRow(gauge, i)));
@@ -288,7 +314,7 @@ function renderPanel() {
   }
 
   const rowEls = rowsEl.querySelectorAll('.row');
-  gauges.forEach((gauge, i) => fillRow(rowEls[i], gauge));
+  gauges.forEach((gauge, i) => fillRow(rowEls[i], gauge, d.alertAt));
   syncSignIn(rowsEl, d.reason);
 }
 
@@ -304,11 +330,30 @@ function syncSignIn(rowsEl, reason) {
     if (existing) existing.remove();
     return;
   }
-  if (existing) return;   // never replace a button mid-sign-in
-  appendSignIn(rowsEl, reason);
+  const btn = existing || appendSignIn(rowsEl);
+  const status = state.signin && state.signin.status;
+  // Every outcome reaches the user. The button used to say "signing in…"
+  // forever on failure, or silently reset to its default label on success —
+  // either way they never learned what happened.
+  if (status === 'working') {
+    btn.textContent = 'Signing in…';
+    btn.disabled = true;
+  } else if (status === 'needs-terminal') {
+    btn.textContent = 'Open Terminal to finish';
+    btn.disabled = false;
+  } else {
+    btn.textContent = 'Sign in with Claude Code';
+    btn.disabled = false;
+  }
 }
 
-/** The row's structure, with its bar at zero so it can grow into place. */
+/**
+ * The row's structure, with its bar at zero so it can grow into place.
+ *
+ * The number leads. It used to be the smallest, dimmest text in the panel,
+ * printed under a bar that already encoded it — so the row said "73" three
+ * times and never once loudly.
+ */
 function buildRow(gauge, index) {
   const row = document.createElement('div');
   row.className = 'row';
@@ -318,9 +363,9 @@ function buildRow(gauge, index) {
   head.className = 'row-head';
   const name = document.createElement('span');
   name.className = 'row-name';
-  const reset = document.createElement('span');
-  reset.className = 'row-reset';
-  head.append(name, reset);
+  const value = document.createElement('span');
+  value.className = 'row-value';
+  head.append(name, value);
 
   const bar = document.createElement('div');
   bar.className = 'bar';
@@ -328,16 +373,18 @@ function buildRow(gauge, index) {
   fill.style.width = '0%';
   bar.appendChild(fill);
 
-  const pct = document.createElement('div');
-  pct.className = 'row-pct';
+  const reset = document.createElement('div');
+  reset.className = 'row-reset';
 
-  row.append(head, bar, pct);
+  row.append(head, bar, reset);
   return row;
 }
 
 /** The row's content, written into whichever nodes are already there. */
-function fillRow(row, gauge) {
+function fillRow(row, gauge, thresholds) {
   if (!row) return;
+  const tone = VM.tone(gauge.percent, gauge.severity);
+
   const name = row.querySelector('.row-name');
   name.textContent = VM.rowLabel(gauge);
   if (gauge.active) {
@@ -346,28 +393,47 @@ function fillRow(row, gauge) {
     badge.textContent = 'active limit';
     name.appendChild(badge);
   }
-  row.querySelector('.row-reset').textContent =
-    VM.resetLabel(gauge, Date.now(), locale(), timeFormat());
 
-  const fill = row.querySelector('.bar > i');
-  fill.className = `tone-${VM.tone(gauge.percent)}`;
+  const value = row.querySelector('.row-value');
+  value.className = `row-value tone-${tone}`;
+  value.textContent = `${gauge.percent}%`;
+
+  const bar = row.querySelector('.bar');
+  const fill = bar.querySelector('i');
+  fill.className = `tone-${tone}`;
   fill.style.width = `${Math.max(0, Math.min(100, gauge.percent))}%`;
 
-  // The header and the amber strip already own the timestamp; repeating it
+  // Residue for alerts: a peek lasts four seconds once, so without a mark on
+  // the track a warning you looked away from never existed. Doubles as the
+  // non-colour channel for the thresholds.
+  for (const old of bar.querySelectorAll('.tick')) old.remove();
+  for (const level of thresholds || []) {
+    if (level <= 0 || level >= 100) continue;
+    const tick = document.createElement('span');
+    tick.className = gauge.percent >= level ? 'tick crossed' : 'tick';
+    tick.style.left = `${level}%`;
+    bar.appendChild(tick);
+  }
+
+  // The header and the status strip already own the timestamp; repeating it
   // per row printed the same time four times in a 400px panel.
-  row.querySelector('.row-pct').textContent = `${gauge.percent}% used`;
+  const rate = VM.rateLine(gauge, state.data.trend);
+  const reset = row.querySelector('.row-reset');
+  reset.textContent = VM.resetLabel(gauge, Date.now(), locale(), timeFormat());
+  if (rate) {
+    const span = document.createElement('span');
+    span.className = 'row-rate';
+    span.textContent = ` · ${rate}`;
+    reset.appendChild(span);
+  }
 }
 
 /** The one-click fix, right where the problem is reported. */
-function appendSignIn(parent, reason) {
-  if (!VM.isCredentialProblem(reason)) return;
+function appendSignIn(parent) {
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.textContent = 'Sign in with Claude Code';
-  btn.addEventListener('click', () => {
-    btn.textContent = 'signing in…';
-    btn.disabled = true;
-    window.island.act('sign-in');
-  });
+  btn.addEventListener('click', () => window.island.act('sign-in'));
   parent.appendChild(btn);
+  return btn;
 }

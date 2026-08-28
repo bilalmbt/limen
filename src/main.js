@@ -30,6 +30,8 @@ const store = require('./state');
 const alerts = require('./alerts');
 const N = require('./notch');
 const I = require('./island-state');
+const trend = require('./trend');
+const autostart = require('./autostart');
 const VM = require('./viewmodel');
 const { execFile } = require('child_process');
 
@@ -47,7 +49,9 @@ const DEFAULTS = {
   notchWidth: null,         // points; null = derived from the display
   timeFormat: 'auto',       // 'auto', '12' or '24'
   osNotifications: false,   // peek replaces notifications; turn both on if you like
-  shortcut: 'CommandOrControl+Shift+I'  // toggles the wings; '' registers nothing
+  shortcut: 'CommandOrControl+Shift+I',     // menu-bar chips; '' registers nothing
+  showShortcut: 'CommandOrControl+Shift+U', // open the panel without the mouse
+  contentProtection: true   // keep the island out of screenshots and shares
 };
 
 /**
@@ -68,6 +72,8 @@ function sanitize(raw) {
     ? c.alertAt.filter((n) => Number.isFinite(n) && n > 0 && n <= 100)
     : DEFAULTS.alertAt;
   c.shortcut = typeof c.shortcut === 'string' ? c.shortcut : DEFAULTS.shortcut;
+  c.showShortcut = typeof c.showShortcut === 'string' ? c.showShortcut : DEFAULTS.showShortcut;
+  c.contentProtection = c.contentProtection !== false;
   c.wings = c.wings === true;
   c.osNotifications = c.osNotifications === true;
   c.externalDisplays = c.externalDisplays === 'off' ? 'off' : 'island';
@@ -116,6 +122,7 @@ let lastData = { ok: false, reason: 'loading', gauges: [] };
 let lastGood = store.restoreLastGood();   // survives a restart: no blank island
 let failures = store.restoreFailures();   // survives a restart: no lost backoff
 let alertLedger = store.read().alerts || {};
+let history = store.read().history || [];   // for burn rate; percentages only
 let inFlight = false;
 let nextAllowedAt = 0;    // wall-clock floor under every fetch, whoever asks
 let lastFetchAt = 0;      // so a held mouse button cannot become a flood
@@ -125,12 +132,18 @@ let ready = false;
 let currentDisplayId = null;
 let pollTimer = null;
 let refreshTimer = null;
+let lastCursor = null;   // for stillness: a moving cursor is not a hover
 let hideTimer = null;
 if (lastGood) {
   lastData = { ...lastGood, stale: true, reason: 'loading' };
   // Size the window for the restored gauges, or the panel opens clipped
   // for accounts with more than three quotas until the first fetch lands.
   rows = Math.max(1, lastGood.gauges.length);
+}
+
+/** The refresh control should reflect a real fetch, not a fixed animation. */
+function sendBusy(on) {
+  if (ready && win && !win.isDestroyed()) win.webContents.send('busy', on === true);
 }
 
 /** One log line per state change, never one per poll. */
@@ -223,6 +236,17 @@ function createWindow(display) {
   // while the cursor is over the island's own visible surface (see poll).
   // Clicks aimed anywhere else — the menu bar strip above all — pass through.
   win.setIgnoreMouseEvents(true);
+
+  // Keep the island out of screenshots, recordings and screen shares. It
+  // lives at the top of the screen during exactly the moments people demo
+  // and record, and it is showing account usage. Skipped for the capture
+  // harness, which needs to photograph its own window.
+  if (config.contentProtection && !CAPTURE) win.setContentProtection(true);
+
+  // No remote content exists here and the CSP forbids it; these close the
+  // category permanently rather than relying on that staying true.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
 
   win.on('closed', () => {
     win = null;
@@ -359,7 +383,12 @@ function poll() {
       top: surface.top, bottom: surface.bottom + 44
     });
 
-  const r = I.tick(machine, { inHot, inKeepAlive, now: Date.now() });
+  const moved = lastCursor
+    ? Math.hypot(cursor.x - lastCursor.x, cursor.y - lastCursor.y)
+    : 0;
+  lastCursor = cursor;
+
+  const r = I.tick(machine, { inHot, inKeepAlive, moved, now: Date.now() });
   machine = r.m;
   applyEffects(r.effects);
 
@@ -415,6 +444,7 @@ async function refresh(cause = 'schedule', force = false) {
   }
   inFlight = true;
   lastFetchAt = Date.now();
+  sendBusy(true);   // the ↻ spins for as long as the fetch really runs
   let data;
   try {
     data = await fetchUsage();
@@ -424,6 +454,7 @@ async function refresh(cause = 'schedule', force = false) {
     data = { ok: false, reason: 'network', detail: String((err && err.message) || err), fetchedAt: Date.now(), gauges: [] };
   } finally {
     inFlight = false;
+    sendBusy(false);
   }
 
   // 'no-credentials' and 'token-expired' are local conditions: no request
@@ -438,11 +469,13 @@ async function refresh(cause = 'schedule', force = false) {
 
   try {
     if (data.ok) {
+      history = trend.push(history, data.gauges, data.fetchedAt);
+      data.trend = trend.summarize(history, data.gauges, data.fetchedAt);
       lastGood = data;
       lastData = data;
-      raiseAlerts(data.gauges);
+      raiseAlerts(data.gauges, data.trend);
       store.save({
-        lastGood: data, failures: 0, alerts: alertLedger,
+        lastGood: data, failures: 0, alerts: alertLedger, history,
         lastReason: null, nextAllowedAt: 0
       });
     } else {
@@ -457,6 +490,9 @@ async function refresh(cause = 'schedule', force = false) {
 
     logState(data);
     if (data.ok && data.gauges.length) setRows(data.gauges.length);
+    // The panel draws threshold marks where the alerts sit, so it needs to
+    // know where they are.
+    lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
     if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
     updateTray();
   } catch (err) {
@@ -467,33 +503,89 @@ async function refresh(cause = 'schedule', force = false) {
 
   clearTimeout(refreshTimer);
   nextAllowedAt = Date.now() + delay;
-  refreshTimer = setTimeout(() => refresh('schedule'), delay);
+  // Guard the reschedule: an in-flight fetch that lands after the window is
+  // gone would otherwise revive the loop for a dead window.
+  if (win && !win.isDestroyed()) {
+    refreshTimer = setTimeout(() => refresh('schedule'), delay);
+  }
 }
 
 /**
  * Crossing a threshold peeks the island — and, only if asked, also raises an
  * OS notification. Same ledger for both, so nothing ever speaks twice.
  */
-function raiseAlerts(gauges) {
+function raiseAlerts(gauges, summary) {
+  if (alertsPausedUntil > Date.now()) return;
   const thresholds = Array.isArray(config.alertAt) ? config.alertAt : [];
   if (!thresholds.length) return;
 
   const { raise, ledger } = alerts.due(gauges, thresholds, alertLedger);
   alertLedger = ledger;
 
-  for (const { gauge, level } of raise) {
-    const r = I.alert(machine, gauge.id, Date.now());
+  // A threshold crossing is a LAGGING signal: it fires once you are already
+  // there. "You will run out before this window resets" is the leading one,
+  // and it rides the same ledger so it still speaks only once per window.
+  const paced = [];
+  for (const gauge of gauges || []) {
+    const t = summary && summary[gauge.id];
+    if (!t || !t.beforeReset || gauge.percent >= 90) continue;   // 90 has its own alert
+    const seen = alertLedger[`pace-${gauge.id}`];
+    if (seen && seen.window === (gauge.resetsAt || null)) continue;
+    alertLedger[`pace-${gauge.id}`] = { window: gauge.resetsAt || null, level: 'pace' };
+    paced.push({ gauge, level: 'pace', minutes: Math.round(t.exhaustsInMs / 60000) });
+  }
+
+  // Queue them: raising two in one poll used to overwrite the first peek
+  // while the ledger had already recorded it as spoken, so it was never
+  // shown at all. Session and weekly crossing together is the normal case.
+  for (const item of [...raise, ...paced]) queuePeek(item);
+}
+
+/**
+ * One peek at a time, in order. When several are due at once the panel is
+ * the better answer than a queue of pills, so anything past the second
+ * expands instead.
+ */
+const peekQueue = [];
+let peekTimer = null;
+function queuePeek(item) {
+  peekQueue.push(item);
+  if (peekQueue.length > 2) {
+    peekQueue.length = 0;
+    const r = I.promote(machine);
     machine = r.m;
     applyEffects(r.effects);
-    if (config.osNotifications && Notification.isSupported()) {
-      const name = gauge.model || (gauge.kind === 'session' ? 'Current session' : 'All models');
-      new Notification({
-        title: `Claude at ${gauge.percent}%`,
-        body: `${name} crossed ${level}%.`,
-        silent: level < 90
-      }).show();
-    }
+    return;
   }
+  if (!peekTimer) drainPeeks();
+}
+
+function drainPeeks() {
+  const item = peekQueue.shift();
+  clearTimeout(peekTimer);
+  peekTimer = null;
+  if (!item) return;
+
+  const r = I.alert(machine, item.gauge.id, Date.now());
+  machine = r.m;
+  applyEffects(r.effects);
+  notify(item);
+  if (peekQueue.length) peekTimer = setTimeout(drainPeeks, I.T.peekMs + 400);
+}
+
+function notify(item) {
+  if (!config.osNotifications || !Notification.isSupported()) return;
+  const { gauge, level } = item;
+  const name = gauge.model || (gauge.kind === 'session' ? 'Current session' : 'All models');
+  new Notification({
+    title: level === 'pace'
+      ? `${name} will run out before it resets`
+      : `Claude at ${gauge.percent}%`,
+    body: level === 'pace'
+      ? `About ${item.minutes} min left at the current pace.`
+      : `${name} crossed ${level}%.`,
+    silent: level !== 'pace' && level < 90
+  }).show();
 }
 
 // --- Sign in, one click -----------------------------------------------------
@@ -535,6 +627,7 @@ function resolveClaude() {
 }
 
 let signingIn = false;
+let pendingTerminal = false;   // the first click nudges; a second opens Terminal
 
 /**
  * One click from the tray. Two rungs:
@@ -546,9 +639,22 @@ let signingIn = false;
  *   2. If the numbers are still locked out, a real login needs a human and a
  *      browser: open Terminal running `claude`, where /login lives.
  */
+/** Tell the panel what the sign-in is doing; it collapses out from under it otherwise. */
+function sendSignIn(status, detail) {
+  if (ready && win && !win.isDestroyed()) win.webContents.send('signin', { status, detail });
+}
+
 async function signInViaClaudeCode() {
   if (signingIn) return;
   signingIn = true;
+  // Hold the panel open for the duration: collapse is cursor-driven, so the
+  // only progress indicator vanished the moment the mouse moved off the
+  // button — leaving up to 60 seconds of apparent nothing.
+  machine = { ...machine, busy: true };
+  const r = I.promote(machine);
+  machine = r.m;
+  applyEffects(r.effects);
+  sendSignIn('working');
   updateTray();
   try {
     const bin = await resolveClaude();
@@ -563,9 +669,17 @@ async function signInViaClaudeCode() {
       await refresh('sign-in', true);
       if (!credProblem()) {
         trace('sign-in: token refreshed, gauges live');
+        pendingTerminal = false;
+        sendSignIn('done');
         return;
       }
     }
+    // A real login needs a browser and a person. Opening Terminal unasked
+    // steals focus and types a command, which is indistinguishable from
+    // malware — so the panel asks first and the user presses the button.
+    sendSignIn('needs-terminal');
+    if (!pendingTerminal) { pendingTerminal = true; return; }
+    pendingTerminal = false;
     // A real login needs a human and a browser. The path is passed as an
     // argument rather than interpolated into the script: building AppleScript
     // by concatenation breaks on a space and quotes badly on anything worse.
@@ -581,6 +695,7 @@ async function signInViaClaudeCode() {
     });
   } finally {
     signingIn = false;
+    machine = { ...machine, busy: false };
     updateTray();
   }
 }
@@ -593,14 +708,29 @@ function updateTray() {
   const label = session ? `${session.percent}%`
     : signingIn ? 'signing in…'
     : credProblem() ? 'sign in'
-    : 'Island';
-  tray.setToolTip('Claude Island');
+    : '–';
+  // The tooltip is the accessible surface: the window is click-through and
+  // unfocusable, so for a VoiceOver user this is the only place the numbers
+  // exist at all. It used to be the constant string "Claude Island".
+  const detail = (lastData.gauges || [])
+    .map((g) => `${VM.rowLabel(g)}: ${g.percent}%`).join('\n');
+  tray.setToolTip(detail ? `Claude Island\n${detail}` : 'Claude Island');
   if (process.platform === 'darwin') tray.setTitle(` ${label}`);
   buildMenu();
 }
 
-function buildMenu() {
+/** Rebuilding a context menu while it is open dismisses it under the cursor. */
+let menuSignature = null;
+function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
+  const paused = alertsPausedUntil > Date.now();
+  const signature = [
+    credProblem(), signingIn, machine.wings, paused,
+    (lastData.gauges || []).length > 0, autostart.isEnabled()
+  ].join('|');
+  if (!force && signature === menuSignature) return;
+  menuSignature = signature;
+
   tray.setContextMenu(Menu.buildFromTemplate([
     ...(credProblem() ? [
       {
@@ -610,29 +740,102 @@ function buildMenu() {
       },
       { type: 'separator' }
     ] : []),
+    // The panel was hover-only and no menu item opened it, so a user who
+    // never guessed the gesture could not reach the data at all.
+    { label: 'Show usage', click: () => showPanel() },
     { label: 'Refresh now', click: () => refresh('tray', true) },
-    {
-      label: 'Peek for a moment',
-      enabled: (lastData.gauges || []).length > 0,
-      click: () => {
-        const first = (lastData.gauges || [])[0];
-        if (!first) return;   // nothing to peek is nothing to show
-        const r = I.alert(machine, first.id, Date.now());
-        machine = r.m;
-        applyEffects(r.effects);
-      }
-    },
     { type: 'separator' },
     {
-      label: 'Wings',
+      label: 'Show chips in the menu bar',
       type: 'checkbox',
       checked: machine.wings,
+      accelerator: config.shortcut || undefined,
       click: () => toggleWings()
     },
-    { label: 'Reveal the config file', click: () => revealConfig() },
+    {
+      label: paused ? 'Alerts paused' : 'Pause alerts',
+      submenu: [
+        { label: 'For 1 hour', click: () => pauseAlerts(60) },
+        { label: 'Until tomorrow', click: () => pauseAlerts(60 * 12) },
+        { label: 'Resume alerts', enabled: paused, click: () => pauseAlerts(0) }
+      ]
+    },
     { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
+    {
+      label: 'Start at login',
+      type: 'checkbox',
+      checked: autostart.isEnabled() === true,
+      enabled: autostart.isEnabled() !== null,
+      click: (item) => { autostart.setEnabled(item.checked); buildMenu(true); }
+    },
+    { label: 'Reload settings', click: () => reloadConfig() },
+    { label: 'Show the config file', click: () => revealConfig() },
+    { type: 'separator' },
+    { label: 'Restart the island', click: () => autostart.restart() },
+    { label: 'Quit (until next login)', click: () => app.quit() }
   ]));
+}
+
+/** Open the panel deliberately — from the tray, or the keyboard. */
+function showPanel() {
+  const r = I.promote(machine);
+  machine = r.m;
+  applyEffects(r.effects);
+  refresh('shown');
+}
+
+/**
+ * Two bindings, because hover was the only way in: a keyboard user, a
+ * VoiceOver user, or anyone who cannot hold a cursor steady had no route to
+ * their own quota at all.
+ */
+function registerShortcuts() {
+  const bind = (accel, fn, what) => {
+    if (!accel || !accel.trim()) return;
+    try {
+      // register() RETURNS false for a taken binding rather than throwing,
+      // so a bare catch would report nothing and the shortcut would simply
+      // not exist, with no diagnosis anywhere.
+      if (!globalShortcut.register(accel, fn)) {
+        trace(`shortcut "${accel}" (${what}) is already taken; use the tray menu`);
+      }
+    } catch (err) {
+      trace(`shortcut "${accel}" (${what}) rejected: ${err.message}`);
+    }
+  };
+  bind(config.shortcut, () => toggleWings(), 'menu-bar chips');
+  bind(config.showShortcut, () => showPanel(), 'show usage');
+}
+
+let alertsPausedUntil = store.read().alertsPausedUntil || 0;
+function pauseAlerts(minutes) {
+  alertsPausedUntil = minutes ? Date.now() + minutes * 60000 : 0;
+  store.save({ alertsPausedUntil });
+  trace(minutes ? `alerts paused for ${minutes} min` : 'alerts resumed');
+  buildMenu(true);
+}
+
+/**
+ * Apply the config file without a restart. Editing JSON *and* restarting to
+ * change one threshold is the worst of both worlds — and the tray invites
+ * the edit.
+ */
+function reloadConfig() {
+  const before = { shortcut: config.shortcut, wings: config.wings };
+  config = loadConfig();
+  machine.wings = config.wings === true;
+
+  if (before.shortcut !== config.shortcut) {
+    globalShortcut.unregisterAll();
+    registerShortcuts();
+  }
+  placeOn(currentDisplay() || islandDisplay());
+  sendGeometry();
+  if (ready && win && !win.isDestroyed()) win.webContents.send('wings', machine.wings);
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => refresh('schedule'), 1000);
+  buildMenu(true);
+  trace('settings reloaded');
 }
 
 function toggleWings() {
@@ -654,8 +857,14 @@ async function revealConfig() {
 }
 
 function createTray() {
+  // A naked percentage beside the battery percentage is unattributable —
+  // the icon is what makes the number belong to something.
+  let image = nativeImage.createFromPath(
+    path.join(__dirname, 'renderer', 'trayTemplate.png'));
+  if (image.isEmpty()) image = nativeImage.createEmpty();
+  else image.setTemplateImage(true);   // macOS recolours it per menu-bar theme
   try {
-    tray = new Tray(nativeImage.createEmpty());
+    tray = new Tray(image);
   } catch (_) {
     return;   // no tray on this session: carry on without one
   }
@@ -667,6 +876,7 @@ function createTray() {
 const FIXTURE = {
   ok: true,
   fetchedAt: Date.now() - 60000,
+  alertAt: [80, 95],
   gauges: [
     { id: 'session', kind: 'session', percent: 73, resetsAt: new Date(Date.now() + 51 * 60000).toISOString(), resetStyle: 'relative', active: true },
     { id: 'weekly', kind: 'weekly', percent: 21, resetsAt: '2026-08-31T16:17:00Z', resetStyle: 'absolute', active: false },
@@ -695,6 +905,13 @@ function playScene(scene) {
     send('panel', true);
   } else if (scene === 'billing') {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
+    send('panel', true);
+  } else if (scene === 'pace') {
+    // A quota on course to run out before its window resets.
+    send('usage', {
+      ...FIXTURE,
+      trend: { session: { rate: 0.6, exhaustsInMs: 44 * 60000, beforeReset: true } }
+    });
     send('panel', true);
   } else if (scene === 'peek') {
     const hot = {
@@ -816,18 +1033,7 @@ app.whenReady().then(() => {
   }
   pollTimer = setInterval(poll, pollRate);
 
-  // An invalid or taken accelerator must not stop the island — and it must
-  // not be silent either: register() RETURNS false for a taken binding
-  // rather than throwing, so a catch alone would report nothing.
-  if (config.shortcut.trim()) {
-    try {
-      if (!globalShortcut.register(config.shortcut, () => toggleWings())) {
-        trace(`shortcut "${config.shortcut}" is already taken; wings stay on the tray menu`);
-      }
-    } catch (err) {
-      trace(`shortcut "${config.shortcut}" rejected: ${err.message}`);
-    }
-  }
+  registerShortcuts();
 
   // Waking from sleep with hours-old numbers is worse than one extra call —
   // but the failure count is NOT cleared here. Zeroing it would erase the
@@ -867,5 +1073,6 @@ app.on('before-quit', () => {
   clearInterval(pollTimer);
   clearTimeout(refreshTimer);
   clearTimeout(hideTimer);
+  clearTimeout(peekTimer);
   globalShortcut.unregisterAll();
 });

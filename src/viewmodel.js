@@ -9,10 +9,20 @@
   else root.VM = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
 
-  /** Headroom tone, same scale as Marge: green < 35, yellow < 70, orange < 90. */
-  function tone(percent) {
-    if (percent < 35) return 'ok';
-    if (percent < 70) return 'warn';
+  /**
+   * Headroom tone. Amber used to start at 35%, which is barely a third of a
+   * quota — alarm fatigue by design. Caution now begins at the halfway mark,
+   * where it means something.
+   */
+  function tone(percent, severity) {
+    // The server grades its own limits; when it speaks, it outranks our
+    // thresholds, so the scale stays right if Anthropic moves the cliff.
+    if (severity && severity !== 'normal') {
+      if (severity === 'critical' || severity === 'exceeded') return 'crit';
+      if (severity === 'warning' || severity === 'high') return 'hot';
+    }
+    if (percent < 50) return 'ok';
+    if (percent < 75) return 'warn';
     if (percent < 90) return 'hot';
     return 'crit';
   }
@@ -69,6 +79,24 @@
     return 'extra usage on — past 100% bills, it does not stop';
   }
 
+  /**
+   * "full in ~40 min" — said only when the pace would exhaust the quota
+   * before its window resets, because a limit that resets first needs no
+   * warning and a 400pt panel has no room for reassurance. Worded as a pace
+   * rather than a deadline: the five-hour window is rolling, so a straight
+   * line through the samples is an estimate, not a promise.
+   */
+  function rateLine(gauge, trend) {
+    const t = trend && trend[gauge.id];
+    if (!t || !t.beforeReset) return '';
+    const mins = Math.round(t.exhaustsInMs / 60000);
+    if (mins < 1) return 'full any minute';
+    if (mins < 60) return `full in ~${mins} min`;
+    const h = Math.floor(mins / 60);
+    const r = mins % 60;
+    return r >= 10 ? `full in ~${h} h ${r} min` : `full in ~${h} h`;
+  }
+
   /** Reasons a fresh Claude Code sign-in would fix. */
   function isCredentialProblem(reason) {
     return reason === 'no-credentials' || reason === 'token-expired' || reason === 'unauthorized';
@@ -76,24 +104,32 @@
 
   /** Why the numbers are stale, in words a human can act on. */
   function reasonLabel(reason) {
+    // Diagnoses, not instructions: the panel's button carries the action, and
+    // a note that repeats it in dimmer type says the same thing twice.
     const known = {
-      'no-credentials': 'no Claude Code session found',
-      'token-expired': 'open Claude Code once',
-      'unauthorized': 'open Claude Code once',
-      'rate-limited': 'rate-limited',
-      'server': 'API unavailable',
-      'network': 'offline',
-      'loading': 'first read on its way'
+      'no-credentials': "Claude Code isn't signed in",
+      'token-expired': 'Your Claude Code sign-in expired',
+      'unauthorized': 'Claude rejected this sign-in',
+      'rate-limited': 'Anthropic throttled the check',
+      'server': 'Claude’s API is unavailable',
+      'network': 'No connection',
+      'loading': 'First read on its way'
     };
-    return known[reason] || reason || 'unknown';
+    return known[reason] || reason || 'Unknown problem';
   }
 
-  /** The amber strip on a degraded panel: what happened, and when we retry. */
+  /**
+   * The strip on a degraded panel: what happened, and when we retry. The
+   * word "stale" is gone — the amber dot and the header's "as of" already
+   * carry it, and three middot-chained clauses in the smallest type read as
+   * developer vocabulary rather than a status.
+   */
   function staleLine(reason, retryAt, now) {
-    const base = `stale · ${reasonLabel(reason)}`;
-    if (!retryAt || retryAt <= now) return base;
+    const base = reasonLabel(reason);
+    const said = base.charAt(0).toUpperCase() + base.slice(1);
+    if (!retryAt || retryAt <= now) return said;
     const mins = Math.max(1, Math.round((retryAt - now) / 60000));
-    return `${base} · next try in ${mins} min`;
+    return `${said} — retrying in ${mins} min`;
   }
 
   /**
@@ -129,6 +165,6 @@
 
   return {
     tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine,
-    wingsModel, wingTag, ceilingNote, isCredentialProblem
+    wingsModel, wingTag, ceilingNote, rateLine, isCredentialProblem
   };
 }));
