@@ -150,6 +150,39 @@
   }
 
   /**
+   * The compact reset note on a wing chip.
+   *
+   * Two forms, because they answer different questions and people want
+   * different ones: "how long have I got" (remaining) and "when does this
+   * end" (ends). A menu bar has room for a few characters, not a sentence,
+   * so a weekly window reads as a weekday or a day count rather than a date.
+   *
+   * @param {'off'|'remaining'|'ends'} mode
+   */
+  function wingReset(gauge, mode, now, locale, timeFormat) {
+    if (mode !== 'remaining' && mode !== 'ends') return '';
+    if (!gauge || !gauge.resetsAt) return '';
+    const at = Date.parse(gauge.resetsAt);
+    if (!Number.isFinite(at)) return '';
+
+    if (mode === 'ends') {
+      const d = new Date(at);
+      // Past today, a clock time is a lie by omission — say which day.
+      return (at - now) < 20 * 3600 * 1000
+        ? d.toLocaleTimeString(locale || undefined, timeOptions(timeFormat))
+        : d.toLocaleDateString(locale || undefined, { weekday: 'short' });
+    }
+
+    const mins = Math.round((at - now) / 60000);
+    if (mins <= 0) return 'now';
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h < 24) return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+    return `${Math.round(h / 24)}d`;
+  }
+
+  /**
    * Which two gauges the wings show: left is always the 5-hour session (the
    * one that cuts you off mid-task), right is the binding limit — the one
    * flagged active, or failing that the fullest of the rest.
@@ -165,6 +198,6 @@
 
   return {
     tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine,
-    wingsModel, wingTag, ceilingNote, rateLine, isCredentialProblem
+    wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem
   };
 }));

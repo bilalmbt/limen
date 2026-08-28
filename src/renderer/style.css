@@ -98,11 +98,14 @@ html, body {
   align-items: center;
   justify-content: center;   /* content centres inside the equalized chip */
   gap: 7px;
-  padding: 0 12px;
+  padding: 0 13px;
   /* No rim: the notch has none, and a band must be one uniform black. */
   background: #000;
   border: none;
-  font-size: var(--t-lead);
+  /* The band is as tall as the notch — 30 to 44 points depending on the
+     machine — so it can carry real type. At 12.5px it was whispering in a
+     space built for the menu bar's own 13px. */
+  font-size: 14px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: #FFFFFF;
@@ -110,17 +113,28 @@ html, body {
   transition: opacity 0.25s ease, border-radius var(--spring-ms) var(--spring);
 }
 .wing .tag {
-  font-size: var(--t-meta);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink-dim);
 }
+/* How long is left, or when it ends. Dimmer than the number and set off by
+   a hairline, so the percentage still reads first. */
+.wing .rst {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  padding-left: 8px;
+  margin-left: 1px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+.wing .rst:empty { display: none; }
 /* Tone reaches the number too. In a 14px ring alone, a peripheral glance at
    the menu bar could not tell healthy from hot. */
 .wing .pct { color: #FFFFFF; background: none; }
 .wing .pct.tone-hot { color: var(--hot); }
 .wing .pct.tone-crit { color: var(--crit); }
-.wing .ring { width: 14px; height: 14px; }
+.wing .ring { width: 15px; height: 15px; }
 /* Flush against the notch: the inner corner is square and tucks 2px under
    the notch edge, so a slightly-off width estimate can never open a seam. */
 .wing.left { right: calc(50% + var(--notch-w) / 2 - 2px); border-radius: 0 0 0 11px; }

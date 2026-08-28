@@ -25,7 +25,10 @@ const G = {
   hotMargin: 24,           // the hot zone extends this far past the notch sides
   fallbackMenuBar: 24,     // hot-strip height when the OS reports none
   panelWidth: 400,         // the expanded panel
-  windowWidth: 520,        // the window is wider: room for morph and shadow
+  // Wider than the panel on purpose: the wings extend past it on both
+  // sides, and a chip clipped by the window edge is worse than a wide
+  // transparent window, which costs nothing.
+  windowWidth: 660,
   windowSlack: 84,         // below the panel: the shadow reaches 26+56 px
   keepAliveMargin: 16,     // sideways beyond the panel
   keepAliveBottom: 44      // below the panel
@@ -77,10 +80,11 @@ function windowBounds(display, rows, overrides = {}) {
     m.hotHeight + panelHeight(rows) + G.windowSlack,
     b.height
   );
+  const width = Math.min(G.windowWidth, b.width);
   return {
-    x: Math.round(m.centerX - G.windowWidth / 2),
+    x: Math.round(m.centerX - width / 2),
     y: b.y,
-    width: G.windowWidth,
+    width,
     height
   };
 }

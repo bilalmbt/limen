@@ -49,9 +49,12 @@ window.island.onBusy((on) => {
 });
 window.island.onSignIn((s) => { state.signin = s || null; render(); });
 
-// Relative labels ("resets in 51 min") drift; keep them honest. Rows are
-// reconciled in place, so this tick never disturbs a running animation.
-setInterval(() => { if (state.panelOpen || state.peek) render(); }, 30000);
+// Relative labels ("resets in 51 min", "4h15") drift; keep them honest.
+// Rows are reconciled in place, so this tick never disturbs a running
+// animation. The wings count down too, so this runs while they are out.
+setInterval(() => {
+  if (state.panelOpen || state.peek || state.wings) render();
+}, 30000);
 
 // The two fixed controls. The window only takes the mouse while the cursor
 // is over the island's surface, so these never intercept an outside click.
@@ -79,6 +82,7 @@ function beginEntrance() {
 
 function locale() { return (state.geometry && state.geometry.locale) || undefined; }
 function timeFormat() { return (state.geometry && state.geometry.timeFormat) || 'auto'; }
+function wingInfo() { return (state.data && state.data.wingInfo) || 'off'; }
 
 function setRing(el, percent, severity) {
   el.style.setProperty('--p', String(Math.max(0, Math.min(100, percent))));
@@ -160,10 +164,12 @@ function renderWings() {
     el.querySelector('.tag').textContent = VM.wingTag(gauge);
     setRing(el.querySelector('.ring'), gauge.percent, gauge.severity);
     const pct = el.querySelector('.pct');
-    // Tone reaches the number, not just the 14px ring: at a peripheral
-    // glance the ring alone could not separate healthy from hot.
+    // Tone reaches the number, not just the ring: at a peripheral glance
+    // the ring alone could not separate healthy from hot.
     pct.className = `pct tone-${VM.tone(gauge.percent, gauge.severity)}`;
     pct.textContent = `${gauge.percent}%`;
+    el.querySelector('.rst').textContent =
+      VM.wingReset(gauge, wingInfo(), Date.now(), locale(), timeFormat());
   };
   fill('left', model.left);
   fill('right', model.right);
@@ -466,7 +472,24 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  * index) and never over the current settings — buttons are built once and
  * reused, so a captured setting goes stale on the first change.
  */
+const WING_INFO = [
+  ['off', '%', 'Just the percentage'],
+  ['remaining', 'Left', 'Also how long until the window resets'],
+  ['ends', 'Ends', 'Also when the window resets']
+];
+
 function buildPrimeBar(bar) {
+  const winfo = bar.querySelector('.chips.winfo');
+  for (const [value, label, title] of WING_INFO) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.winfo = value;
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', () => window.island.act('wing-info', value));
+    winfo.appendChild(b);
+  }
+
   const modes = bar.querySelector('.chips.mode');
   for (const [value, label, title] of MODES) {
     const b = document.createElement('button');
@@ -499,6 +522,12 @@ function renderPrimeBar(p) {
   bar.classList.toggle('off', !p);
   if (!p) return;
   if (!bar.dataset.built) { buildPrimeBar(bar); bar.dataset.built = '1'; }
+
+  // Only worth offering while the chips are actually in the menu bar.
+  $('#winforow').classList.toggle('off', !state.wings);
+  for (const b of bar.querySelectorAll('.chips.winfo .chip')) {
+    b.classList.toggle('on', b.dataset.winfo === wingInfo());
+  }
 
   const mode = p.chain ? 'chain' : p.at ? 'at' : '';
   for (const b of bar.querySelectorAll('.chips.mode .chip')) {

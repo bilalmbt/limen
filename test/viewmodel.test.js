@@ -155,6 +155,37 @@ test('the panel says when 100% bills rather than stops', () => {
   assert.strictEqual(VM.ceilingNote(null), '');
 });
 
+test('wing chips can carry how long is left', () => {
+  const now = Date.parse('2026-08-28T12:00:00Z');
+  const at = (mins) => ({ resetsAt: new Date(now + mins * 60000).toISOString() });
+  assert.strictEqual(VM.wingReset(at(45), 'remaining', now), '45m');
+  assert.strictEqual(VM.wingReset(at(255), 'remaining', now), '4h15');
+  assert.strictEqual(VM.wingReset(at(120), 'remaining', now), '2h', 'a round hour drops the zeroes');
+  assert.strictEqual(VM.wingReset(at(60 * 24 * 6), 'remaining', now), '6d',
+    'a weekly window is days, not a hundred-odd hours');
+  assert.strictEqual(VM.wingReset(at(-5), 'remaining', now), 'now',
+    'never a negative countdown');
+});
+
+test('wing chips can carry when the window ends instead', () => {
+  const now = Date.parse('2026-08-28T12:00:00Z');
+  const soon = { resetsAt: new Date(now + 3 * 3600000).toISOString() };
+  const far = { resetsAt: new Date(now + 5 * 86400000).toISOString() };
+  assert.ok(/\d/.test(VM.wingReset(soon, 'ends', now, 'en-US', '24')), 'a clock time today');
+  assert.ok(/^[A-Za-z]{3}/.test(VM.wingReset(far, 'ends', now, 'en-US', '24')),
+    'past today a clock time alone would be a lie by omission');
+});
+
+test('the reset note is off unless asked for, and never invents one', () => {
+  const now = 0;
+  const g = { resetsAt: new Date(now + 60000).toISOString() };
+  assert.strictEqual(VM.wingReset(g, 'off', now), '');
+  assert.strictEqual(VM.wingReset(g, undefined, now), '');
+  assert.strictEqual(VM.wingReset({}, 'remaining', now), '', 'no reset date, no note');
+  assert.strictEqual(VM.wingReset({ resetsAt: 'nonsense' }, 'remaining', now), '');
+  assert.strictEqual(VM.wingReset(null, 'remaining', now), '');
+});
+
 test('only sign-in fixable reasons offer the sign-in path', () => {
   assert.strictEqual(VM.isCredentialProblem('no-credentials'), true);
   assert.strictEqual(VM.isCredentialProblem('token-expired'), true);

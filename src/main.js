@@ -501,6 +501,7 @@ async function refresh(cause = 'schedule', force = false) {
     lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
     lastData.primeNote = primeNote();
     lastData.canPrime = data.ok && !sessionOpen();
+    lastData.wingInfo = config.wingInfo;
     lastData.prime = {
       at: config.primeAt[0] || '',
       days: config.primeDays,
@@ -798,6 +799,14 @@ function setPrimeMode(mode) {
   if (chain || times.length) checkPrime();
 }
 
+function setWingInfo(mode) {
+  const next = ['off', 'remaining', 'ends'].includes(mode) ? mode : 'off';
+  config.wingInfo = next;
+  saveConfig({ wingInfo: next });
+  trace(`chips show: ${next}`);
+  pushUsage();
+}
+
 /** A nudged time. Changing it re-arms today's slot, so a time you just moved
     to can still fire today rather than waiting until tomorrow. */
 function setPrimeTimeValue(time) {
@@ -824,6 +833,7 @@ function setPrimeDays(days) {
 function pushUsage() {
   lastData.primeNote = primeNote();
   lastData.canPrime = Boolean(lastData.ok) && !sessionOpen();
+  lastData.wingInfo = config.wingInfo;
   lastData.prime = {
     at: config.primeAt[0] || '',
     days: config.primeDays,
@@ -1146,6 +1156,7 @@ const FIXTURE = {
   ok: true,
   fetchedAt: Date.now() - 60000,
   alertAt: [80, 95],
+  wingInfo: 'remaining',
   gauges: [
     { id: 'session', kind: 'session', percent: 73, resetsAt: new Date(Date.now() + 51 * 60000).toISOString(), resetStyle: 'relative', active: true },
     { id: 'weekly', kind: 'weekly', percent: 21, resetsAt: '2026-08-31T16:17:00Z', resetStyle: 'absolute', active: false },
@@ -1399,6 +1410,8 @@ ipcMain.on('island-action', (e, name, value) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
   if (name === 'prime-mode') {
     setPrimeMode(value);
+  } else if (name === 'wing-info') {
+    setWingInfo(value);
   } else if (name === 'prime-step') {
     const field = value && value.field === 'm' ? 'm' : 'h';
     const delta = value && Number(value.delta) < 0 ? -1 : 1;
