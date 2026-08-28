@@ -158,6 +158,19 @@ function renderWings() {
   };
   fill('left', model.left);
   fill('right', model.right);
+
+  // Equalize the two chips so the band stays centred on the notch. Chips are
+  // content-sized, and "5h" against "Fable" pushed the whole island ~8px off
+  // the one landmark it is pretending to grow out of — an offset that then
+  // shifted whenever the model name changed length.
+  const l = wingsEl.querySelector('.wing.left');
+  const r = wingsEl.querySelector('.wing.right');
+  l.style.width = r.style.width = '';
+  const widest = Math.max(
+    l.classList.contains('empty') ? 0 : l.offsetWidth,
+    r.classList.contains('empty') ? 0 : r.offsetWidth
+  );
+  if (widest) l.style.width = r.style.width = `${widest}px`;
 }
 
 function renderPeek() {
@@ -191,17 +204,18 @@ function alignPanel(panel) {
 
   const model = VM.wingsModel(state.data.gauges);
   if (state.wings && model) {
+    // Derived from the notch, not from the text: the chips are equalized, so
+    // band width is notch + two chips, and its centre IS the notch centre.
+    // That also keeps the panel on the same axis as #peek, which centres on
+    // the window — otherwise the surface jumped sideways mid-morph.
     const l = $('#wings .wing.left');
     const r = $('#wings .wing.right');
-    const bandLeft = !l.classList.contains('empty')
-      ? l.getBoundingClientRect().left
-      : center - g.notchWidth / 2;
-    const bandRight = !r.classList.contains('empty')
-      ? r.getBoundingClientRect().right
-      : center + g.notchWidth / 2;
-    const bandWidth = bandRight - bandLeft;
+    const chip = !l.classList.contains('empty') ? l.offsetWidth
+      : !r.classList.contains('empty') ? r.offsetWidth : 0;
+    const sides = (l.classList.contains('empty') ? 0 : 1) + (r.classList.contains('empty') ? 0 : 1);
+    const bandWidth = g.notchWidth + chip * sides - 4;
     width = Math.max(bandWidth, 340);   // never so narrow the rows squeeze
-    left = bandLeft + bandWidth / 2 - width / 2;
+    left = center - width / 2;
   }
   // Exact fractional pixels: rounding left and width independently drifts
   // the edges a device pixel away from the chips they must sit flush with.
@@ -274,7 +288,7 @@ function renderPanel() {
   }
 
   const rowEls = rowsEl.querySelectorAll('.row');
-  gauges.forEach((gauge, i) => fillRow(rowEls[i], gauge, stale, when));
+  gauges.forEach((gauge, i) => fillRow(rowEls[i], gauge));
   syncSignIn(rowsEl, d.reason);
 }
 
@@ -322,7 +336,7 @@ function buildRow(gauge, index) {
 }
 
 /** The row's content, written into whichever nodes are already there. */
-function fillRow(row, gauge, stale, when) {
+function fillRow(row, gauge) {
   if (!row) return;
   const name = row.querySelector('.row-name');
   name.textContent = VM.rowLabel(gauge);
@@ -339,8 +353,9 @@ function fillRow(row, gauge, stale, when) {
   fill.className = `tone-${VM.tone(gauge.percent)}`;
   fill.style.width = `${Math.max(0, Math.min(100, gauge.percent))}%`;
 
-  row.querySelector('.row-pct').textContent =
-    stale ? `${gauge.percent}% as of ${when}` : `${gauge.percent}% used`;
+  // The header and the amber strip already own the timestamp; repeating it
+  // per row printed the same time four times in a 400px panel.
+  row.querySelector('.row-pct').textContent = `${gauge.percent}% used`;
 }
 
 /** The one-click fix, right where the problem is reported. */

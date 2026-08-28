@@ -61,6 +61,11 @@ html, body {
    corner there would read as a bite out of one continuous shape. */
 #fakenotch.join-left { border-bottom-left-radius: 0; }
 #fakenotch.join-right { border-bottom-right-radius: 0; }
+/* Above the panel. Both are positioned and the panel comes later in the DOM,
+   so without this the panel painted over the notch's bottom 10px — shearing
+   off the very rounded mouth that makes it read as a notch, and leaving the
+   panel's square corners poking out on either side. */
+#fakenotch { z-index: 4; }
 
 /* ---- ambient wings: black chips flanking the notch, satellites of the
         island. Each chip is the FULL height of the notch band, flush with
@@ -76,6 +81,7 @@ html, body {
   height: var(--hot-h);
   display: flex;
   align-items: center;
+  justify-content: center;   /* content centres inside the equalized chip */
   gap: 7px;
   padding: 0 12px;
   /* No rim: the notch has none, and a band must be one uniform black. */
@@ -126,11 +132,16 @@ html, body {
 }
 .ring.big { width: 16px; height: 16px; }
 
-/* ---- shared island surface ---- */
+/* ---- shared island surface ----
+   The top of the surface is the notch's own true black and only BECOMES
+   glass once it has cleared the band. Painting it glass throughout drew a
+   400px-wide tonal step exactly at the seam — ten 8-bit levels is a faint
+   patch difference but a very visible edge, and against a real bezel it
+   would be guaranteed rather than incidental. */
 #peek, #panel {
   position: absolute;
   left: 50%;
-  background: var(--glass);
+  background: linear-gradient(#000 0, #000 14px, var(--glass) 46px);
   border: 1px solid var(--edge);
   border-top: none;
   /* Scaled from the top edge: the island unfurls out of the notch rather
@@ -204,9 +215,16 @@ html, body {
 #peek {
   top: calc(var(--hot-h) - 8px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 16px 20px 11px;
+  /* The top 8px are tucked under the band, so the visual top padding is
+     20-8=12, matching the 11 below. */
+  padding: 20px 20px 11px;
+  /* Always wider than the notch it comes out of: at content width a short
+     alert ("All models 4%") was narrower than the notch and vanished into
+     it — the user saw a shadow and nothing else. */
+  min-width: calc(var(--notch-w) + 64px);
+  justify-content: center;
   border-radius: 0 0 18px 18px;
   white-space: nowrap;
 }
@@ -235,12 +253,18 @@ html, body {
   align-items: center;
   gap: 7px;
   margin-bottom: 12px;
-  font-size: 9.5px;
-  color: var(--warn);
+  font-size: 10.5px;
+  /* Only the dot carries the alarm: a fully coloured sentence over-weights a
+     status note, and this line was smaller than the rows it warns about. */
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 #stale.off { display: none; }
-#stale .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
+#stale .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warn); flex: none;
+  position: relative; top: 1px;   /* centre on the ink, not the line box */
+}
 
 .row { margin-bottom: 12px; }
 .row:last-child { margin-bottom: 2px; }
@@ -286,7 +310,11 @@ html, body {
 .tone-hot { background: var(--hot); }
 .tone-crit { background: var(--crit); }
 
-#panel.stale .row { opacity: 0.72; }
+/* Dim the evidence, never the words. Fading the whole row multiplied with
+   --ink-dim and pushed the small print to 3.7:1 — under AA, in the one state
+   where reading the small print matters most. */
+#panel.stale .bar,
+#panel.stale .row-reset { opacity: 0.7; }
 
 /* What a full bar means on this account, when it isn't "you are stopped". */
 #ceiling {

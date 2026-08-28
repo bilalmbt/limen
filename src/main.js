@@ -441,9 +441,15 @@ async function refresh(cause = 'schedule', force = false) {
       lastGood = data;
       lastData = data;
       raiseAlerts(data.gauges);
-      store.save({ lastGood: data, failures: 0, alerts: alertLedger, lastReason: null });
+      store.save({
+        lastGood: data, failures: 0, alerts: alertLedger,
+        lastReason: null, nextAllowedAt: 0
+      });
     } else {
-      store.save({ failures, lastReason: data.reason });
+      // Persist WHEN the next attempt is due, not just how many failed:
+      // a count alone restarts the whole backoff on every launch, so a
+      // restart an hour later would still sit out a fresh 15 minutes.
+      store.save({ failures, lastReason: data.reason, nextAllowedAt: Date.now() + delay });
       lastData = lastGood
         ? { ...lastGood, stale: true, reason: data.reason, checkedAt: data.fetchedAt, retryAt: Date.now() + delay }
         : { ...data, retryAt: Date.now() + delay };
@@ -787,7 +793,13 @@ app.whenReady().then(() => {
   const endpointFailure = failures > 0 &&
     bootReason && bootReason !== 'no-credentials' && bootReason !== 'token-expired';
   if (endpointFailure) {
-    const delay = nextDelay({ ok: false }, failures, config.refreshSeconds);
+    // Serve out the REMAINDER of the stored backoff. Time passes while the
+    // app is closed, and re-waiting the full delay would punish a restart.
+    const stored = store.read().nextAllowedAt;
+    const remaining = Number.isFinite(stored) ? stored - Date.now() : NaN;
+    const delay = Number.isFinite(remaining)
+      ? Math.max(0, Math.min(remaining, nextDelay({ ok: false }, failures, config.refreshSeconds)))
+      : nextDelay({ ok: false }, failures, config.refreshSeconds);
     const retryAt = Date.now() + delay;
     lastData = lastGood
       ? { ...lastGood, stale: true, reason: bootReason, retryAt }
