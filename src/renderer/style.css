@@ -467,6 +467,9 @@ html, body {
 #primebar .prow.off { display: none; }
 #primebar .lbl { font-size: var(--t-meta); color: var(--ink-faint); }
 #primebar .chips { display: flex; gap: 4px; margin-left: auto; }
+/* Two groups share the chips row; only the first is pushed right. */
+#primebar .chips + .chips { margin-left: 10px; }
+#primebar .chips.wcount .chip { min-width: 22px; text-align: center; }
 #primebar .stepper { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 #primebar .clock {
   font-size: var(--t-body);

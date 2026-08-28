@@ -261,7 +261,7 @@ function createWindow(display) {
   win.webContents.on('did-finish-load', () => {
     ready = true;
     sendGeometry();
-    win.webContents.send('usage', lastData);
+    win.webContents.send('usage', decorate(lastData));
     // A reveal can happen before loading finishes: replay the current state.
     win.webContents.send('panel', machine.state === I.EXPANDED);
     win.webContents.send('wings', machine.wings);
@@ -516,6 +516,8 @@ async function refresh(cause = 'schedule', force = false) {
     lastData.primeNote = primeNote();
     lastData.canPrime = data.ok && !sessionOpen();
     lastData.wingInfo = config.wingInfo;
+  lastData.wingCount = config.wingCount;
+    lastData.wingCount = config.wingCount;
     lastData.prime = {
       at: config.primeAt[0] || '',
       days: config.primeDays,
@@ -822,6 +824,13 @@ function setContentProtection(on) {
   buildMenu(true);
 }
 
+function setWingCount(count) {
+  config.wingCount = count === 2 ? 2 : 1;
+  saveConfig({ wingCount: config.wingCount });
+  trace(`chips: ${config.wingCount}`);
+  pushUsage();
+}
+
 function setWingInfo(mode) {
   const next = ['off', 'remaining', 'ends'].includes(mode) ? mode : 'off';
   config.wingInfo = next;
@@ -852,18 +861,32 @@ function setPrimeDays(days) {
   pushUsage();
 }
 
-/** Re-send the current reading, so a settings change shows up immediately. */
-function pushUsage() {
-  lastData.primeNote = primeNote();
-  lastData.canPrime = Boolean(lastData.ok) && !sessionOpen();
-  lastData.wingInfo = config.wingInfo;
-  lastData.prime = {
+/**
+ * Attach everything the panel needs that is settings, not usage.
+ *
+ * These used to be written at the end of refresh(), which meant a launch
+ * that restored a backoff — and therefore deferred its first fetch — sent a
+ * reading with none of them, and the panel quietly dropped its whole
+ * controls section until the first request finally landed.
+ */
+function decorate(d) {
+  d.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
+  d.primeNote = primeNote();
+  d.canPrime = Boolean(d.ok) && !sessionOpen();
+  d.wingInfo = config.wingInfo;
+  d.wingCount = config.wingCount;
+  d.prime = {
     at: config.primeAt[0] || '',
     days: config.primeDays,
     chain: config.primeChain,
     model: config.primeModel
   };
-  if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
+  return d;
+}
+
+/** The one way a reading reaches the renderer. */
+function pushUsage() {
+  if (ready && win && !win.isDestroyed()) win.webContents.send('usage', decorate(lastData));
 }
 
 /** "next at 08:00" / "next Mon 08:00" — so an armed feature says so. */
@@ -1190,6 +1213,7 @@ const FIXTURE = {
   fetchedAt: Date.now() - 60000,
   alertAt: [80, 95],
   wingInfo: 'remaining',
+  wingCount: 2,
   gauges: [
     { id: 'session', kind: 'session', percent: 73, resetsAt: new Date(Date.now() + 51 * 60000).toISOString(), resetStyle: 'relative', active: true },
     { id: 'weekly', kind: 'weekly', percent: 21, resetsAt: '2026-08-31T16:17:00Z', resetStyle: 'absolute', active: false },
@@ -1293,16 +1317,19 @@ function runSelfTest() {
   win.webContents.on('did-finish-load', async () => {
     playScene('priming');
     await new Promise((r) => setTimeout(r, 800));
+    // ISLAND_SELFTEST names the control to click, so any button can be
+    // exercised without a mouse.
+    const selector = process.env.ISLAND_SELFTEST === '1'
+      ? '#primebar .chips.mode .chip[data-mode="at"]'
+      : process.env.ISLAND_SELFTEST;
     const found = await win.webContents.executeJavaScript(`(() => {
-      const chips = [...document.querySelectorAll('#primebar .chip')];
-      const bar = document.querySelector('#primebar');
-      const target = chips.find((c) => c.dataset.value === '08:00');
-      if (!target) return { chips: chips.length, barHidden: !bar || bar.classList.contains('off') };
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) return { found: false, selector: ${JSON.stringify(selector)} };
       const r = target.getBoundingClientRect();
       target.click();
       return {
-        chips: chips.length,
-        barHidden: bar.classList.contains('off'),
+        found: true,
+        text: target.textContent,
         rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
         winHeight: window.innerHeight,
         insideWindow: r.bottom <= window.innerHeight
@@ -1310,7 +1337,8 @@ function runSelfTest() {
     })()`);
     trace(`selftest: ${JSON.stringify(found)}`);
     setTimeout(() => {
-      trace(`selftest: primeAt=${JSON.stringify(config.primeAt)} chain=${config.primeChain}`);
+      trace(`selftest: wingCount=${config.wingCount} wingInfo=${config.wingInfo} ` +
+        `primeAt=${JSON.stringify(config.primeAt)} chain=${config.primeChain}`);
       app.exit(0);
     }, 600);
   });
@@ -1456,6 +1484,8 @@ ipcMain.on('island-action', (e, name, value) => {
     setPrimeMode(value);
   } else if (name === 'wing-info') {
     setWingInfo(value);
+  } else if (name === 'wing-count') {
+    setWingCount(value);
   } else if (name === 'prime-step') {
     const field = value && value.field === 'm' ? 'm' : 'h';
     const delta = value && Number(value.delta) < 0 ? -1 : 1;

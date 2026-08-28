@@ -92,6 +92,7 @@ function beginEntrance() {
 function locale() { return (state.geometry && state.geometry.locale) || undefined; }
 function timeFormat() { return (state.geometry && state.geometry.timeFormat) || 'auto'; }
 function wingInfo() { return (state.data && state.data.wingInfo) || 'off'; }
+function wingCount() { return (state.data && state.data.wingCount) === 2 ? 2 : 1; }
 
 /**
  * @param {number} minSweep  smallest arc a non-zero value may draw.
@@ -187,7 +188,7 @@ function renderAnchor() {
 
 function renderWings() {
   const wingsEl = $('#wings');
-  const model = VM.wingsModel(state.data.gauges);
+  const model = VM.wingsModel(state.data.gauges, wingCount());
   // Wings stay out while the panel is open: the band is part of the island,
   // and a band that shrinks when the panel morphs would break the shape.
   const show = state.wings && Boolean(model);
@@ -201,15 +202,16 @@ function renderWings() {
     const el = wingsEl.querySelector(`.wing.${side}`);
     el.classList.toggle('empty', !gauge);
     if (!gauge) return;
+    // No ring here any more. At 15px it was a grey circle whose arc said
+    // nothing the adjacent number did not say better, and it cost about a
+    // fifth of the chip. Colour now appears only when it means something,
+    // which is also what makes it register when it does.
     const tone = VM.tone(gauge.percent, gauge.severity);
     el.classList.toggle('hot', tone === 'hot');
     el.classList.toggle('crit', tone === 'crit');
     el.querySelector('.tag').textContent = VM.wingTag(gauge);
-    setRing(el.querySelector('.ring'), gauge.percent, gauge.severity, 9);
     const pct = el.querySelector('.pct');
-    // Tone reaches the number, not just the ring: at a peripheral glance
-    // the ring alone could not separate healthy from hot.
-    pct.className = `pct tone-${VM.tone(gauge.percent, gauge.severity)}`;
+    pct.className = `pct tone-${tone}`;
     pct.textContent = `${gauge.percent}%`;
     el.querySelector('.rst').textContent =
       VM.wingReset(gauge, wingInfo(), Date.now(), locale(), timeFormat());
@@ -522,6 +524,20 @@ const WING_INFO = [
 ];
 
 function buildPrimeBar(bar) {
+  const wcount = bar.querySelector('.chips.wcount');
+  for (const [value, label, title] of [
+    [1, '1', 'One chip: the limit that will stop you first'],
+    [2, '2', 'Two chips: the session and the binding limit']
+  ]) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.count = String(value);
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', () => window.island.act('wing-count', value));
+    wcount.appendChild(b);
+  }
+
   const winfo = bar.querySelector('.chips.winfo');
   for (const [value, label, title] of WING_INFO) {
     const b = document.createElement('button');
@@ -570,6 +586,9 @@ function renderPrimeBar(p) {
   $('#winforow').classList.toggle('off', !state.wings);
   for (const b of bar.querySelectorAll('.chips.winfo .chip')) {
     b.classList.toggle('on', b.dataset.winfo === wingInfo());
+  }
+  for (const b of bar.querySelectorAll('.chips.wcount .chip')) {
+    b.classList.toggle('on', Number(b.dataset.count) === wingCount());
   }
 
   const mode = p.chain ? 'chain' : p.at ? 'at' : '';

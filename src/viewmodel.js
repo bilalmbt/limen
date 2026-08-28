@@ -168,9 +168,13 @@
     if (mode === 'ends') {
       const d = new Date(at);
       // Past today, a clock time is a lie by omission — say which day.
-      return (at - now) < 20 * 3600 * 1000
-        ? d.toLocaleTimeString(locale || undefined, timeOptions(timeFormat))
-        : d.toLocaleDateString(locale || undefined, { weekday: 'short' });
+      if ((at - now) >= 20 * 3600 * 1000) {
+        return d.toLocaleDateString(locale || undefined, { weekday: 'short' });
+      }
+      // Always 24-hour here, whatever the panel is set to: "10:49 PM" is
+      // eight characters and a space in a strip measured in millimetres,
+      // and it is the only place in the app where width beats familiarity.
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
 
     const mins = Math.round((at - now) / 60000);
@@ -187,13 +191,22 @@
    * one that cuts you off mid-task), right is the binding limit — the one
    * flagged active, or failing that the fullest of the rest.
    */
-  function wingsModel(gauges) {
+  function wingsModel(gauges, count = 2) {
     if (!gauges || !gauges.length) return null;
-    const left = gauges.find((g) => g.kind === 'session') || gauges[0];
-    const rest = gauges.filter((g) => g !== left);
-    const right = rest.find((g) => g.active) ||
+    const session = gauges.find((g) => g.kind === 'session') || gauges[0];
+    const rest = gauges.filter((g) => g !== session);
+    const binding = rest.find((g) => g.active) ||
       rest.slice().sort((a, b) => b.percent - a.percent)[0] || null;
-    return { left, right };
+
+    if (count === 1) {
+      // One chip shows the limit that will actually stop you: the one the
+      // API flags as active, or failing that the fullest of the lot. Placed
+      // on the right, where the menu bar keeps its other indicators.
+      const one = [session, binding].filter(Boolean).sort((a, b) =>
+        (b.active === true) - (a.active === true) || b.percent - a.percent)[0];
+      return { left: null, right: one };
+    }
+    return { left: session, right: binding };
   }
 
   return {

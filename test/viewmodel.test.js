@@ -83,6 +83,30 @@ test('the status strip names the reason and the retry time', () => {
     'the amber dot and the header already say the numbers are old');
 });
 
+test('one chip shows the limit that will actually stop you', () => {
+  const gauges = [
+    { id: 'session', kind: 'session', percent: 12 },
+    { id: 'weekly', kind: 'weekly', percent: 40 },
+    { id: 'model-opus', kind: 'model', model: 'Opus', percent: 91, active: true }
+  ];
+  const one = VM.wingsModel(gauges, 1);
+  assert.strictEqual(one.left, null, 'a single chip sits on the indicator side');
+  assert.strictEqual(one.right.id, 'model-opus', 'the flagged limit wins');
+
+  // With nothing flagged, the fullest of session-vs-binding wins.
+  const noFlag = VM.wingsModel([
+    { id: 'session', kind: 'session', percent: 80 },
+    { id: 'weekly', kind: 'weekly', percent: 20 }
+  ], 1);
+  assert.strictEqual(noFlag.right.id, 'session');
+});
+
+test('one chip still works when the account exposes a single quota', () => {
+  const one = VM.wingsModel([{ id: 'session', kind: 'session', percent: 5 }], 1);
+  assert.strictEqual(one.right.id, 'session');
+  assert.strictEqual(one.left, null);
+});
+
 test('wings: session on the left, the binding limit on the right', () => {
   const gauges = [
     { id: 'session', kind: 'session', percent: 73 },
@@ -171,7 +195,10 @@ test('wing chips can carry when the window ends instead', () => {
   const now = Date.parse('2026-08-28T12:00:00Z');
   const soon = { resetsAt: new Date(now + 3 * 3600000).toISOString() };
   const far = { resetsAt: new Date(now + 5 * 86400000).toISOString() };
-  assert.ok(/\d/.test(VM.wingReset(soon, 'ends', now, 'en-US', '24')), 'a clock time today');
+  // Always HH:MM, whatever the panel is set to — five characters, and no
+  // AM/PM to widen the strip.
+  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', '12'), /^\d{2}:\d{2}$/);
+  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', 'auto'), /^\d{2}:\d{2}$/);
   assert.ok(/^[A-Za-z]{3}/.test(VM.wingReset(far, 'ends', now, 'en-US', '24')),
     'past today a clock time alone would be a lie by omission');
 });

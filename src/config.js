@@ -22,6 +22,7 @@ const DEFAULTS = {
   alertAt: [80, 95],        // peek when a quota crosses these marks; [] = never
   wings: false,             // ambient chips: opt-in, the menu bar is busy land
   wingInfo: 'remaining',    // what a chip adds: 'off', 'remaining', 'ends'
+  wingCount: 1,             // 1 = only the limit that will stop you; 2 = both
   externalDisplays: 'island', // 'island' draws a virtual one, 'off' draws nothing
   displayId: 'primary',     // which notchless display hosts the virtual island
   notchWidth: null,         // points; null = derived from the display
@@ -72,6 +73,8 @@ function clean(key, v) {
       return v === 'off' || v === 'island' ? v : undefined;
     case 'wingInfo':
       return ['off', 'remaining', 'ends'].includes(v) ? v : undefined;
+    case 'wingCount':
+      return v === 1 || v === 2 ? v : undefined;
     case 'timeFormat':
       return ['12', '24', 'auto'].includes(v) ? v : undefined;
     case 'shortcut':
