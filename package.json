@@ -69,7 +69,8 @@
           "type": "link",
           "path": "/Applications"
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-${arch}.dmg"
     },
     "afterSign": "scripts/afterSign.js"
   }
