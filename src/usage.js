@@ -76,7 +76,7 @@ function httpsGetJson(token) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         'anthropic-beta': 'oauth-2025-04-20',
-        'User-Agent': 'claude-island'
+        'User-Agent': 'limen'
       },
       timeout: 10000
     }, (res) => {

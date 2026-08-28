@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Install Claude Island as a login item (macOS LaunchAgent).
+# Install Limen as a login item (macOS LaunchAgent).
 # Run from the project directory: bash install.sh
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LABEL="com.claudeisland.widget"
+LABEL="io.moobytes.limen"
+# The label before the rename, unloaded here so an upgrade does not leave two
+# copies of the island racing for the same notch.
+OLD_LABEL="com.claudeisland.widget"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 command -v node >/dev/null || { echo "Node.js 18+ is required."; exit 1; }
@@ -15,9 +18,9 @@ echo "Installing dependencies…"
 echo "Running the test suite…"
 # Not `npm test && echo`: under `set -e` a failure on the left of `&&` is
 # exempt from exit-on-error, so that reads as a gate without being one.
-if ! (cd "$DIR" && npm test >/tmp/claude-island-test.log 2>&1); then
+if ! (cd "$DIR" && npm test >/tmp/limen-test.log 2>&1); then
   echo "Tests failed — not installing. Output:"
-  tail -20 /tmp/claude-island-test.log
+  tail -20 /tmp/limen-test.log
   exit 1
 fi
 echo "  all tests passed"
@@ -27,7 +30,7 @@ ELECTRON="$DIR/node_modules/.bin/electron"
 
 echo "Registering the login item…"
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-LOG="$HOME/Library/Logs/claude-island.log"
+LOG="$HOME/Library/Logs/limen.log"
 
 # Built with plutil rather than a heredoc: a project path containing &, < or
 # > would otherwise produce invalid XML, and a crafted one could inject plist
@@ -43,6 +46,11 @@ LOG="$HOME/Library/Logs/claude-island.log"
 /usr/bin/plutil -insert StandardOutPath -string "$LOG" "$PLIST"
 /usr/bin/plutil -insert StandardErrorPath -string "$LOG" "$PLIST"
 /usr/bin/plutil -lint "$PLIST" >/dev/null
+
+# The pre-rename agent first: leaving it loaded would put a second copy of
+# the island on the same notch at the next login.
+launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2>/dev/null || true
+rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"

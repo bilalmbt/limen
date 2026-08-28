@@ -1,6 +1,6 @@
-# Claude Island
+# Limen
 
-**Your Claude usage limits in the MacBook notch.** A Dynamic Island for
+**Your Claude Code usage limits, in the notch.** A Dynamic Island for
 macOS: invisible when idle, one ambient glance when something is worth
 knowing, the full picture when you hover the notch.
 
@@ -203,7 +203,8 @@ top-center, that appears only while the island has something to say
 
 ## Configuration
 
-`~/.config/claude-island/config.json` (Reveal it from the tray menu):
+`~/.config/limen/config.json` (Reveal it from the tray menu). A settings
+directory left by the old name is moved here the first time the app runs:
 
 ```json
 {
@@ -298,7 +299,7 @@ config, so the same scene renders identically on any machine.
 ## About
 
 Made by [@billybowss](https://x.com/billybowss). The tray menu carries an
-**About Claude Island** item — the standard macOS panel, with the version
+**About Limen** item — the standard macOS panel, with the version
 and the credits — and a link to the same handle.
 
 ## License

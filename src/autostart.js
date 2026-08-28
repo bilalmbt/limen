@@ -14,7 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
-const LABEL = 'com.claudeisland.widget';
+const LABEL = 'io.moobytes.limen';
 const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 
 function domain() {

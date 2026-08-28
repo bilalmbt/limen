@@ -41,7 +41,7 @@ const DEMO = process.argv.includes('--demo');
 const CAPTURE = process.env.ISLAND_CAPTURE || null;
 const SCENE = process.env.ISLAND_SCENE || 'expanded';
 
-const CONFIG_PATH = path.join(os.homedir(), '.config', 'claude-island', 'config.json');
+const CONFIG_PATH = require('./paths').file('config.json');
 /**
  * Exactly what a prime sends, in one place so it can be documented honestly.
  * One word, on the cheapest model, with no session file and no MCP servers
@@ -977,10 +977,10 @@ function updateTray() {
     : '–';
   // The tooltip is the accessible surface: the window is click-through and
   // unfocusable, so for a VoiceOver user this is the only place the numbers
-  // exist at all. It used to be the constant string "Claude Island".
+  // exist at all. It used to be the constant string "Limen".
   const detail = (lastData.gauges || [])
     .map((g) => `${VM.rowLabel(g)}: ${g.percent}%`).join('\n');
-  tray.setToolTip(detail ? `Claude Island\n${detail}` : 'Claude Island');
+  tray.setToolTip(detail ? `Limen\n${detail}` : 'Limen');
   if (process.platform === 'darwin') tray.setTitle(` ${label}`);
   buildMenu();
 }
@@ -1087,7 +1087,7 @@ function buildMenu(force = false) {
     { label: 'Reload settings', click: () => reloadConfig() },
     { label: 'Show the config file', click: () => revealConfig() },
     { type: 'separator' },
-    { label: 'About Claude Island', click: () => showAbout() },
+    { label: 'About Limen', click: () => showAbout() },
     // The About panel is native, and nothing in it is clickable — so the
     // handle it names gets an item that actually goes there.
     { label: '@billybowss on X', click: () => openExternal('https://x.com/billybowss') },
@@ -1194,14 +1194,14 @@ function toggleWings() {
 function setAboutPanel() {
   const { version } = require('../package.json');
   app.setAboutPanelOptions({
-    applicationName: 'Claude Island',
+    applicationName: 'Limen',
     applicationVersion: version,
     copyright: `© ${new Date().getFullYear()} @billybowss · MIT`,
     credits: [
-      'Your Claude usage limits, in the MacBook notch.',
+      'Your Claude Code usage limits, in the notch.',
       '',
       'Made by @billybowss — x.com/billybowss',
-      'github.com/jarvisbot19/claude-island'
+      'github.com/jarvisbot19/limen'
     ].join('\n')
   });
 }

@@ -12,13 +12,12 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const paths = require('./paths');
 
 // The override exists so the tests can exercise a real file without touching
 // the user's own state.
-const FILE = process.env.ISLAND_STATE_FILE ||
-  path.join(os.homedir(), '.config', 'claude-island', 'state.json');
+const FILE = process.env.ISLAND_STATE_FILE || paths.file('state.json');
 const DIR = path.dirname(FILE);
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;   // older readings are not worth showing
 

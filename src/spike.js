@@ -51,7 +51,7 @@ app.whenReady().then(() => {
     w.setIgnoreMouseEvents(true);
     w.loadURL('data:text/html,<body style="margin:0;height:100vh;background:rgba(255,59,48,0.7);' +
       'display:grid;place-items:center;font-family:sans-serif;color:white;font-size:14px">' +
-      'claude-island placement spike</body>');
+      'limen placement spike</body>');
     w.showInactive();
 
     const got = w.getBounds();
