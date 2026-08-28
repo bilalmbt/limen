@@ -107,8 +107,17 @@ function reportSurface() {
   const rects = [];
   for (const el of [$('#panel'), $('#peek')]) {
     if (!el || el.classList.contains('off')) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) rects.push(r);
+    // offset* and NOT getBoundingClientRect(): the latter returns the
+    // ANIMATED box, and this runs while the entry transform is still at
+    // scaleY(0.84) translateY(-12px). The reported surface was therefore
+    // the shrunken panel forever — so its bottom sixth, which is exactly
+    // where the buttons and the auto-open chips live, never took a click.
+    // Layout metrics ignore transforms and describe where it lands.
+    const left = el.offsetLeft;
+    const top = el.offsetTop;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    if (w > 0 && h > 0) rects.push({ left, top, right: left + w, bottom: top + h });
   }
   if (!rects.length) return window.island.reportSurface(null);
   window.island.reportSurface({

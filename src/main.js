@@ -206,12 +206,17 @@ function createWindow(display) {
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    focusable: false,
     show: false,
     roundedCorners: false,
-    // The window is never active, so every click on it is a "first mouse":
-    // without this, the first click would only wake the window, not press
-    // the button it landed on.
+    // An NSPanel with the non-activating style mask. This is the whole
+    // reason the buttons can work: `focusable: false` makes a window that
+    // macOS will not route clicks to at all, while a non-activating panel
+    // receives them WITHOUT bringing the app forward — so clicking the
+    // island still never pulls you out of your editor.
+    type: 'panel',
+    // The window is never the active app, so every click on it is a "first
+    // mouse": without this the first click would only wake the window
+    // rather than press the button it landed on.
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -334,6 +339,10 @@ function setInteractive(on) {
   if (!win || win.isDestroyed() || on === interactive) return;
   interactive = on;
   win.setIgnoreMouseEvents(!on);
+  // Logged because this is the one behaviour that cannot be unit-tested and
+  // fails silently: if a button does nothing, the first question is whether
+  // the window was even accepting the mouse at that moment.
+  trace(`mouse: ${on ? 'taking' : 'releasing'} clicks over the island`);
 }
 
 /** Hide the window once nothing is on screen, after the exit animation. */
@@ -1184,6 +1193,42 @@ function playScene(scene) {
   win.showInactive();
 }
 
+/**
+ * Exercise the panel's controls without a mouse.
+ *
+ * Clicking is the one path unit tests cannot reach, and it has two halves
+ * that fail identically from the outside: the renderer wiring (listener →
+ * preload → IPC → handler) and the OS actually delivering a click to a
+ * non-activating, click-through-by-default window. This drives the first
+ * half directly, so a failure tells you which one is broken.
+ */
+function runSelfTest() {
+  win.webContents.on('did-finish-load', async () => {
+    playScene('priming');
+    await new Promise((r) => setTimeout(r, 800));
+    const found = await win.webContents.executeJavaScript(`(() => {
+      const chips = [...document.querySelectorAll('#primebar .chip')];
+      const bar = document.querySelector('#primebar');
+      const target = chips.find((c) => c.dataset.value === '08:00');
+      if (!target) return { chips: chips.length, barHidden: !bar || bar.classList.contains('off') };
+      const r = target.getBoundingClientRect();
+      target.click();
+      return {
+        chips: chips.length,
+        barHidden: bar.classList.contains('off'),
+        rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        winHeight: window.innerHeight,
+        insideWindow: r.bottom <= window.innerHeight
+      };
+    })()`);
+    trace(`selftest: ${JSON.stringify(found)}`);
+    setTimeout(() => {
+      trace(`selftest: primeAt=${JSON.stringify(config.primeAt)} chain=${config.primeChain}`);
+      app.exit(0);
+    }, 600);
+  });
+}
+
 function runCapture() {
   // ISLAND_CAPTURE_DELAY freezes the frame mid-animation: the settled state
   // says nothing about how the island got there, and a motion bug only shows
@@ -1211,7 +1256,8 @@ function runCapture() {
 // rather than quitting politely and racing the primary until it does.
 // Capture and demo runs are one-shot showcases that touch neither the API
 // nor the state file, so they may coexist with a running island.
-if (!DEMO && !CAPTURE && !app.requestSingleInstanceLock()) app.exit(0);
+if (!DEMO && !CAPTURE && !process.env.ISLAND_SELFTEST &&
+    !app.requestSingleInstanceLock()) app.exit(0);
 
 process.on('uncaughtException', (err) => trace(`uncaught: ${err && err.stack}`));
 process.on('unhandledRejection', (err) => trace(`unhandled rejection: ${err}`));
@@ -1231,6 +1277,7 @@ app.whenReady().then(() => {
   const m = N.metrics(display || screen.getPrimaryDisplay(), overrides());
   trace(`started pid=${process.pid} notched=${m.notched} hotHeight=${m.hotHeight} notchWidth=${m.notchWidth}`);
 
+  if (process.env.ISLAND_SELFTEST) { runSelfTest(); return; }
   if (CAPTURE) { runCapture(); return; }
   if (DEMO) {
     // A showcase, nothing else: no tray, no fetching, no cursor sampling.
