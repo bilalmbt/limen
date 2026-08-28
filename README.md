@@ -102,7 +102,7 @@ Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
 
 ```bash
 npm install
-npm test        # 176 tests, no Electron needed
+npm test        # 178 tests, no Electron needed
 npm start       # the island, on your notch (or top-center of a flat display)
 npm run dist    # signed .dmg for both architectures (needs a Developer ID cert)
 ```

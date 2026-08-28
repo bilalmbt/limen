@@ -1001,7 +1001,13 @@ async function signInViaClaudeCode() {
   updateTray();
   try {
     const bin = await resolveClaude();
-    if (bin) {
+    // Nothing to refresh means nothing to nudge: with no credentials at all,
+    // `claude -p ok` cannot log anyone in — that needs a browser — so trying
+    // buys twenty seconds of waiting and the same answer. Straight to the
+    // step that works, which the button has already named.
+    const nothingToRefresh = lastData.reason === 'no-credentials';
+    if (nothingToRefresh) trace('sign-in: no credentials to refresh, going straight to Terminal');
+    if (bin && !nothingToRefresh) {
       trace('sign-in: nudging Claude Code headlessly');
       const began = Date.now();
       await new Promise((resolve) => {
@@ -1023,7 +1029,9 @@ async function signInViaClaudeCode() {
     // steals focus and types a command, which is indistinguishable from
     // malware — so the panel asks first and the user presses the button.
     sendSignIn('needs-terminal');
-    if (!pendingTerminal) { pendingTerminal = true; return; }
+    // The second click existed so Terminal never opened unasked. When the
+    // button itself reads "Open Terminal to sign in", it has been asked.
+    if (!nothingToRefresh && !pendingTerminal) { pendingTerminal = true; return; }
     pendingTerminal = false;
     // A real login needs a human and a browser. The path is passed as an
     // argument rather than interpolated into the script: building AppleScript

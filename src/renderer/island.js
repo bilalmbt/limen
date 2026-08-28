@@ -517,17 +517,11 @@ function syncSignIn(rowsEl, reason) {
   const status = state.signin && state.signin.status;
   // Every outcome reaches the user. The button used to say "signing in…"
   // forever on failure, or silently reset to its default label on success —
-  // either way they never learned what happened.
-  if (status === 'working') {
-    btn.textContent = 'Signing in…';
-    btn.disabled = true;
-  } else if (status === 'needs-terminal') {
-    btn.textContent = 'Open Terminal to finish';
-    btn.disabled = false;
-  } else {
-    btn.textContent = 'Sign in with Claude Code';
-    btn.disabled = false;
-  }
+  // either way they never learned what happened. The wording lives in the
+  // viewmodel, where the rule about what is actually fixable is tested.
+  const action = VM.signInAction(state.data.reason, status);
+  btn.textContent = action.label;
+  btn.disabled = action.disabled;
 }
 
 /**

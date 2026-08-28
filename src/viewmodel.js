@@ -248,8 +248,27 @@
     return { left: picked.slice(0, 1), right: picked.slice(1) };
   }
 
+  /**
+   * What the sign-in button should say, and whether it can be pressed.
+   *
+   * The headless nudge fixes exactly one thing: an expired access token
+   * with a valid refresh token, which Claude Code renews on its own. With
+   * NO credentials there is nothing to refresh — logging in needs a browser
+   * and a person — so offering "Sign in" and then waiting is offering to do
+   * something that cannot be done. The button names the real next step
+   * instead, and naming it is also what makes opening Terminal acceptable:
+   * a button that says it will open Terminal may open Terminal.
+   */
+  function signInAction(reason, status) {
+    if (status === 'working') return { label: 'Signing in…', disabled: true };
+    if (status === 'prime-failed') return { label: 'Could not sign in — try again', disabled: false };
+    if (status === 'needs-terminal') return { label: 'Open Terminal to finish', disabled: false };
+    if (reason === 'no-credentials') return { label: 'Open Terminal to sign in', disabled: false };
+    return { label: 'Sign in with Claude Code', disabled: false };
+  }
+
   return {
-    tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine,
+    tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine, signInAction,
     wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem
   };
 }));

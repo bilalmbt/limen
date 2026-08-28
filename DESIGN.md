@@ -156,7 +156,7 @@ top-center, that appears only while the island has something to say
 
 ## What the tests cover
 
-`npm test` runs 176 tests over the pure modules, no Electron needed:
+`npm test` runs 178 tests over the pure modules, no Electron needed:
 
 - **Notch geometry, 24 tests** — the aspect rule against nine real display
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,
@@ -168,7 +168,7 @@ top-center, that appears only while the island has something to say
 - **Burn rate, 12 tests** — mostly about staying quiet: two samples are a
   coincidence, quantisation noise is not a trend, and a rolling-window reset
   voids a rate rather than reporting a negative one.
-- **Wording and tones, 25 tests** — the luminance-ordered ramp, server-graded
+- **Wording and tones, 27 tests** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
 - **The data layer, 47 tests** — normalization (a missing quota never becomes
   a displayed zero), the one gate every fetch passes, the alert ledger —

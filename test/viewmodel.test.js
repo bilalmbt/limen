@@ -254,4 +254,23 @@ test('only sign-in fixable reasons offer the sign-in path', () => {
   assert.strictEqual(VM.isCredentialProblem(undefined), false);
 });
 
+test('the sign-in button offers what can actually be done', () => {
+  // A headless nudge only fixes an expired token with a live refresh token.
+  // With no credentials at all, nothing is refreshable and the only real
+  // step is a browser login — so the button says so instead of waiting.
+  assert.strictEqual(VM.signInAction('no-credentials').label, 'Open Terminal to sign in');
+  assert.strictEqual(VM.signInAction('token-expired').label, 'Sign in with Claude Code',
+    'an expired token IS worth a silent nudge');
+  assert.strictEqual(VM.signInAction('unauthorized').label, 'Sign in with Claude Code');
+});
+
+test('the sign-in button reports every outcome, and locks while working', () => {
+  assert.deepStrictEqual(VM.signInAction('token-expired', 'working'),
+    { label: 'Signing in…', disabled: true }, 'no second click while one is running');
+  assert.strictEqual(VM.signInAction('token-expired', 'needs-terminal').label,
+    'Open Terminal to finish');
+  assert.strictEqual(VM.signInAction('no-credentials', 'working').disabled, true,
+    'status outranks the reason: a run in progress is a run in progress');
+});
+
 console.log(`\n${passed} viewmodel tests passed`);
