@@ -98,6 +98,39 @@ function wingSources() {
 }
 
 /**
+ * The narrowest the panel may be drawn — and therefore the narrowest the
+ * BAND may be, because the two share their edges and one of them has to give.
+ *
+ * Measured, not chosen: at 300pt every row still reads, the settings chips
+ * still sit on their own lines, and the header keeps a gap between the
+ * active-limit badge and the number. It is tight but whole at 270 and
+ * comfortable here. The old floor was 340, which is wider than a one-chip
+ * band ever gets — so the panel overhung the band it was supposed to grow
+ * out of, on every account showing a single limit.
+ */
+const PANEL_MIN = 300;
+
+/**
+ * The band's real extent, measured from what is drawn rather than derived
+ * from constants: chips are content-sized and equalized, so any arithmetic
+ * version of this drifts from the pixels within a release or two. Both the
+ * chips and the panel are sized from this one answer, which is what keeps
+ * their edges flush.
+ */
+function bandExtent() {
+  const g = state.geometry;
+  const centre = document.documentElement.clientWidth / 2;
+  let left = centre - g.notchWidth / 2;
+  let right = centre + g.notchWidth / 2;
+  for (const wing of document.querySelectorAll('#wings .wing')) {
+    if (wing.classList.contains('empty')) continue;
+    left = Math.min(left, wing.offsetLeft);
+    right = Math.max(right, wing.offsetLeft + wing.offsetWidth);
+  }
+  return { left, right, width: right - left };
+}
+
+/**
  * @param {number} minSweep  smallest arc a non-zero value may draw.
  *
  * At menu-bar size a true 3% arc is a hairline: the ring reads as an empty
@@ -277,6 +310,21 @@ function renderWings() {
     r.classList.contains('empty') ? 0 : r.offsetWidth
   );
   if (widest) l.style.width = r.style.width = `${widest}px`;
+
+  // And never narrower than the panel that has to grow out of it. A single
+  // chip showing a bare percentage measures under 300pt on a real notch and
+  // barely 230 beside a narrow virtual one, so the panel used to sit at its
+  // own floor and overhang the band on both sides — the seam the whole shape
+  // depends on. The chips take the shortfall instead, and they take it in
+  // every state rather than only while the panel is open: a band that
+  // widened on click would be a moving target in the menu bar.
+  if (!state.geometry) return;
+  const chips = [l, r].filter((el) => !el.classList.contains('empty'));
+  const short = PANEL_MIN - bandExtent().width;
+  if (chips.length && short > 0) {
+    const each = Math.ceil(short / chips.length);
+    for (const el of chips) el.style.width = `${el.offsetWidth + each}px`;
+  }
 }
 
 function renderPeek() {
@@ -336,18 +384,12 @@ function alignPanel(panel) {
     // notch left the two misaligned: the band overhanging one way, the
     // panel the other. The island is one shape, so the panel follows
     // whatever the band actually is.
-    const notchLeft = center - g.notchWidth / 2;
-    const notchRight = center + g.notchWidth / 2;
-    let bandLeft = notchLeft;
-    let bandRight = notchRight;
-    for (const wing of document.querySelectorAll('#wings .wing')) {
-      if (wing.classList.contains('empty')) continue;
-      bandLeft = Math.min(bandLeft, wing.offsetLeft);
-      bandRight = Math.max(bandRight, wing.offsetLeft + wing.offsetWidth);
-    }
-    const bandWidth = bandRight - bandLeft;
-    width = Math.max(bandWidth, 340);   // never so narrow the rows squeeze
-    left = (bandLeft + bandRight) / 2 - width / 2;
+    const band = bandExtent();
+    // The band has already been widened to PANEL_MIN, so the floor here is a
+    // backstop rather than the thing that decides: the two agree by
+    // construction, and the max only catches a band measured mid-layout.
+    width = Math.max(band.width, PANEL_MIN);
+    left = (band.left + band.right) / 2 - width / 2;
   }
   // Exact fractional pixels: rounding left and width independently drifts
   // the edges a device pixel away from the chips they must sit flush with.

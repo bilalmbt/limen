@@ -15,7 +15,7 @@ around the notch instead of the screen edge.
 | State | What you see | When |
 |---|---|---|
 | **Dormant** | Nothing. The notch is just the notch. | 95% of the day |
-| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number in words: `Session 73%  51m left`, `Week 21%`, `Fable 52%`. You choose which limits appear — **Show** in the panel: `Session`, `Week`, `Model` — whichever model is busiest — and `Auto` — not a limit but a rule: whatever will stop you first that is not already shown. Three is the most the band holds, and the third rides beside the second in the right-hand chip, which then drops its reset note. | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
+| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number in words: `Session 73%  51m left`, `Week 21%`, `Fable 52%`. You choose which limits appear — **Show** in the panel: `Session`, `Week`, and `Model`, whichever model is busiest. Three is the most the band holds, and the third rides beside the second in the right-hand chip, which then drops its reset note. The band never draws narrower than the panel that unfolds from it, so their edges meet whatever you have asked for. | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
 | **Peek** | One line that drops below the notch for 4 seconds, then retracts. | A quota crosses an alert mark (80, 95) |
 | **Expanded** | Every gauge, led by its number: session, weekly, per-model, with reset times, the **active limit** badge, and — when the pace would exhaust a quota before its window resets — `full in ~44 min`. | Park on the notch, the tray, or `⌘⇧U` |
 
@@ -82,8 +82,9 @@ an hour of the working day. Prime at 08:00 instead and they land at 13:00 and
 
 ### The controls
 
-**In the panel**, an `Auto-open` row: `Off · 07 · 08 · 09 · 10 · Chain`.
-Chips toggle in place — a native macOS menu dismisses itself on every click,
+**In the panel**, a `Show` row and a `Detail` row for the chips, then an
+`Auto-open` row: `Off · At · Chain`, with a time stepper and a row of day
+letters that appear only for `At`. Chips toggle in place — a native macOS menu dismisses itself on every click,
 so choosing a time there means reopening it to see the result. When no window
 is running the panel also shows **Open a session window**, which is the one
 moment that button would do anything.
