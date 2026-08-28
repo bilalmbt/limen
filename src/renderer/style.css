@@ -123,6 +123,17 @@ html, body {
 .wing.hot .tag { color: var(--hot); }
 .wing.crit .tag { color: var(--crit); }
 
+/* The escalation dot: absent below halfway, which is what makes its
+   arrival the signal rather than a colour to be interpreted. */
+.wing .dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  margin-right: 1px;
+}
+.wing .dot.off { display: none; }
+.wing .dot.tone-warn { background: var(--warn); }
+.wing .dot.tone-hot { background: var(--hot); }
+.wing .dot.tone-crit { background: var(--crit); }
+
 /* Reserved width, right-aligned: without it 9% -> 10% widens the chip, which
    resizes the whole band and shifts the panel under it. A number that moves
    its own container is the hardest kind to read. */

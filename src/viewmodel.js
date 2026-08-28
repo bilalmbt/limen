@@ -139,12 +139,15 @@
    */
   function wingTag(gauge) {
     if (!gauge) return '';
-    if (gauge.kind === 'session') return '5h';
-    if (gauge.kind === 'weekly') return '7d';
+    // Words, not our shorthand. "5h" meant the rolling five-hour window to
+    // us and nothing at all to anyone reading it for the first time — and
+    // these are the names the panel already uses, so the two now agree.
+    if (gauge.kind === 'session') return 'Session';
+    if (gauge.kind === 'weekly') return 'Week';
     // Model names are short ("Opus", "Fable"): say the name. Only a long
     // one falls back to its monogram — a chip is not a marquee.
     const name = String(gauge.model || '').trim();
-    if (name && name.length <= 6) return name;
+    if (name && name.length <= 8) return name;
     if (gauge.monogram) return gauge.monogram;
     return name ? name[0].toUpperCase() : '?';
   }
@@ -165,25 +168,29 @@
     const at = Date.parse(gauge.resetsAt);
     if (!Number.isFinite(at)) return '';
 
+    // Every form carries a verb. A bare "Fri" or "22:50" could be a reset,
+    // a start, or the clock — the reader has to already know which.
     if (mode === 'ends') {
       const d = new Date(at);
       // Past today, a clock time is a lie by omission — say which day.
       if ((at - now) >= 20 * 3600 * 1000) {
-        return d.toLocaleDateString(locale || undefined, { weekday: 'short' });
+        return `resets ${d.toLocaleDateString(locale || undefined, { weekday: 'short' })}`;
       }
       // Always 24-hour here, whatever the panel is set to: "10:49 PM" is
       // eight characters and a space in a strip measured in millimetres,
       // and it is the only place in the app where width beats familiarity.
-      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `resets ${hh}:${mm}`;
     }
 
     const mins = Math.round((at - now) / 60000);
-    if (mins <= 0) return 'now';
-    if (mins < 60) return `${mins}m`;
+    if (mins <= 0) return 'resetting';
+    if (mins < 60) return `${mins}m left`;
     const h = Math.floor(mins / 60);
     const m = mins % 60;
-    if (h < 24) return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
-    return `${Math.round(h / 24)}d`;
+    if (h < 24) return m ? `${h}h${String(m).padStart(2, '0')} left` : `${h}h left`;
+    return `${Math.round(h / 24)}d left`;
   }
 
   /**

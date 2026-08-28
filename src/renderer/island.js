@@ -209,6 +209,12 @@ function renderWings() {
     const tone = VM.tone(gauge.percent, gauge.severity);
     el.classList.toggle('hot', tone === 'hot');
     el.classList.toggle('crit', tone === 'crit');
+    // Two steps of escalation, so the band is silent most of the day: a dot
+    // APPEARS past halfway — a shape change catches peripheral vision even
+    // when the text is too small to read — and the number takes colour only
+    // when the ceiling is actually close.
+    const dot = el.querySelector('.dot');
+    dot.className = tone === 'ok' ? 'dot off' : `dot tone-${tone}`;
     el.querySelector('.tag').textContent = VM.wingTag(gauge);
     const pct = el.querySelector('.pct');
     pct.className = `pct tone-${tone}`;

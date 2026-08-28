@@ -138,14 +138,14 @@ test('wings: no gauges, no wings, no crash', () => {
   assert.strictEqual(VM.wingsModel(null), null);
 });
 
-test('wing chips name what their number means', () => {
-  assert.strictEqual(VM.wingTag({ kind: 'session' }), '5h');
-  assert.strictEqual(VM.wingTag({ kind: 'weekly' }), '7d');
+test('wing chips name what their number means, in words', () => {
+  // "5h" and "7d" were our shorthand and nobody else's.
+  assert.strictEqual(VM.wingTag({ kind: 'session' }), 'Session');
+  assert.strictEqual(VM.wingTag({ kind: 'weekly' }), 'Week');
   assert.strictEqual(VM.wingTag({ kind: 'model', model: 'Fable', monogram: 'F' }), 'Fable',
     'a short model name is clearer than its initial');
-  assert.strictEqual(VM.wingTag({ kind: 'model', model: 'Extended', monogram: 'E' }), 'E',
+  assert.strictEqual(VM.wingTag({ kind: 'model', model: 'Considerable', monogram: 'C' }), 'C',
     'a long model name falls back to its monogram — a chip is not a marquee');
-  assert.strictEqual(VM.wingTag({ kind: 'model', model: 'opus' }), 'opus');
   assert.strictEqual(VM.wingTag(null), '');
 });
 
@@ -182,12 +182,12 @@ test('the panel says when 100% bills rather than stops', () => {
 test('wing chips can carry how long is left', () => {
   const now = Date.parse('2026-08-28T12:00:00Z');
   const at = (mins) => ({ resetsAt: new Date(now + mins * 60000).toISOString() });
-  assert.strictEqual(VM.wingReset(at(45), 'remaining', now), '45m');
-  assert.strictEqual(VM.wingReset(at(255), 'remaining', now), '4h15');
-  assert.strictEqual(VM.wingReset(at(120), 'remaining', now), '2h', 'a round hour drops the zeroes');
-  assert.strictEqual(VM.wingReset(at(60 * 24 * 6), 'remaining', now), '6d',
+  assert.strictEqual(VM.wingReset(at(45), 'remaining', now), '45m left');
+  assert.strictEqual(VM.wingReset(at(255), 'remaining', now), '4h15 left');
+  assert.strictEqual(VM.wingReset(at(120), 'remaining', now), '2h left', 'a round hour drops the zeroes');
+  assert.strictEqual(VM.wingReset(at(60 * 24 * 6), 'remaining', now), '6d left',
     'a weekly window is days, not a hundred-odd hours');
-  assert.strictEqual(VM.wingReset(at(-5), 'remaining', now), 'now',
+  assert.strictEqual(VM.wingReset(at(-5), 'remaining', now), 'resetting',
     'never a negative countdown');
 });
 
@@ -195,12 +195,24 @@ test('wing chips can carry when the window ends instead', () => {
   const now = Date.parse('2026-08-28T12:00:00Z');
   const soon = { resetsAt: new Date(now + 3 * 3600000).toISOString() };
   const far = { resetsAt: new Date(now + 5 * 86400000).toISOString() };
-  // Always HH:MM, whatever the panel is set to — five characters, and no
-  // AM/PM to widen the strip.
-  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', '12'), /^\d{2}:\d{2}$/);
-  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', 'auto'), /^\d{2}:\d{2}$/);
-  assert.ok(/^[A-Za-z]{3}/.test(VM.wingReset(far, 'ends', now, 'en-US', '24')),
+  // Always HH:MM, whatever the panel is set to — no AM/PM to widen the strip.
+  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', '12'), /^resets \d{2}:\d{2}$/);
+  assert.match(VM.wingReset(soon, 'ends', now, 'en-US', 'auto'), /^resets \d{2}:\d{2}$/);
+  assert.match(VM.wingReset(far, 'ends', now, 'en-US', '24'), /^resets [A-Za-z]{3}/,
     'past today a clock time alone would be a lie by omission');
+});
+
+test('every reset note carries a verb', () => {
+  // A bare "Fri" or "22:50" could be a reset, a start, or the clock — the
+  // reader has to already know which, which is exactly what a new user does
+  // not. Each form must say what happens.
+  const now = Date.parse('2026-08-28T12:00:00Z');
+  const soon = { resetsAt: new Date(now + 3 * 3600000).toISOString() };
+  const far = { resetsAt: new Date(now + 5 * 86400000).toISOString() };
+  for (const [g, mode] of [[soon, 'ends'], [far, 'ends'], [soon, 'remaining'], [far, 'remaining']]) {
+    const text = VM.wingReset(g, mode, now, 'en-US', '24');
+    assert.ok(/resets|left|resetting/.test(text), `"${text}" says nothing about what happens`);
+  }
 });
 
 test('the reset note is off unless asked for, and never invents one', () => {
