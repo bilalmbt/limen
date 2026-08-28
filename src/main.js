@@ -65,6 +65,18 @@ function primeArgs() {
  * is precisely the kind of thing that makes a small widget look like
  * spyware.
  */
+/**
+ * How long to wait on a headless Claude Code run before deciding it will not
+ * answer.
+ *
+ * Measured rather than guessed: with working credentials the nudge returns in
+ * about three seconds. Twenty leaves room for a slow link and a token refresh
+ * round-trip, and still fails fast enough to feel like an answer. It used to
+ * be sixty, which is not a wait — it is a stare, and it ended in the panel
+ * asking for a second click.
+ */
+const NUDGE_TIMEOUT_MS = 20000;
+
 const MINIMAL_CLAUDE_ARGS = [
   '--output-format', 'text',
   '--no-session-persistence',   // don't litter the user's session history
@@ -949,7 +961,7 @@ async function signInViaClaudeCode() {
   signingIn = true;
   // Hold the panel open for the duration: collapse is cursor-driven, so the
   // only progress indicator vanished the moment the mouse moved off the
-  // button — leaving up to 60 seconds of apparent nothing.
+  // button — leaving the whole wait as apparent nothing.
   machine = { ...machine, busy: true };
   const r = I.promote(machine);
   machine = r.m;
@@ -960,9 +972,11 @@ async function signInViaClaudeCode() {
     const bin = await resolveClaude();
     if (bin) {
       trace('sign-in: nudging Claude Code headlessly');
+      const began = Date.now();
       await new Promise((resolve) => {
-        execFile(bin, ['-p', 'ok', ...MINIMAL_CLAUDE_ARGS], { timeout: 60000 }, (err) => {
-          if (err) trace(`sign-in: nudge failed: ${err.message}`);
+        execFile(bin, ['-p', 'ok', ...MINIMAL_CLAUDE_ARGS],
+          { timeout: NUDGE_TIMEOUT_MS, killSignal: 'SIGKILL' }, (err) => {
+          if (err) trace(`sign-in: nudge failed after ${Math.round((Date.now() - began) / 1000)}s: ${err.message}`);
           resolve();
         });
       });
