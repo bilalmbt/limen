@@ -70,6 +70,7 @@
           "path": "/Applications"
         }
       ]
-    }
+    },
+    "afterSign": "scripts/afterSign.js"
   }
 }

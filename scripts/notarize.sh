@@ -30,6 +30,13 @@ xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
 echo "Stapling…"
 xcrun stapler staple "$DMG"
 
-echo "Verifying as Gatekeeper will see it:"
-spctl -a -vvv -t install "$DMG"
+# A dmg is not code-signed, so `spctl -t install` on it always says "no
+# usable signature" — true and irrelevant. What matters is the app a user
+# drags out of it, so mount the thing and ask about that.
+echo "Verifying the app as Gatekeeper will see it:"
+MNT="$(mktemp -d)"
+hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MNT"
+spctl -a -vvv "$MNT"/*.app
+xcrun stapler validate "$MNT"/*.app
+hdiutil detach "$MNT" -quiet
 echo "Done."
