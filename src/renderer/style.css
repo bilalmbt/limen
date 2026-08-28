@@ -410,6 +410,40 @@ html, body {
   color: var(--ink-dim);
 }
 #ceiling.off, #prime.off { display: none; }
+
+/* Auto-open, in the panel: a native menu closes on every click, so setting a
+   time there means reopening it to see the result. */
+#primebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--edge);
+}
+#primebar.off { display: none; }
+#prime:not(.off) + #primebar { border-top: none; margin-top: 6px; padding-top: 0; }
+#primebar .lbl { font-size: var(--t-meta); color: var(--ink-faint); }
+#primebar .chips { display: flex; gap: 4px; margin-left: auto; }
+#primebar .chip {
+  font: inherit;
+  font-size: var(--t-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+#primebar .chip:hover { background: rgba(255, 255, 255, 0.14); color: var(--ink); }
+#primebar .chip.on {
+  color: var(--accent);
+  border-color: rgba(225, 129, 95, 0.55);
+  background: rgba(225, 129, 95, 0.14);
+}
+#primebar .chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 /* Two footnotes share one rule; the second must not draw a second line. */
 #ceiling:not(.off) + #prime:not(.off) { border-top: none; margin-top: 3px; padding-top: 0; }
 

@@ -286,6 +286,7 @@ function renderPanel() {
   const primeEl = $('#prime');
   primeEl.classList.toggle('off', !d.primeNote);
   primeEl.textContent = d.primeNote ? `⟳ ${d.primeNote}` : '';
+  renderPrimeBar(d.prime);
 
   const rowsEl = $('#rows');
   // The reason only shapes the DOM when there are no gauges to draw; letting
@@ -433,6 +434,52 @@ function fillRow(row, gauge, thresholds) {
     span.className = 'row-rate';
     span.textContent = ` · ${rate}`;
     reset.appendChild(span);
+  }
+}
+
+/**
+ * The auto-open control, in the panel rather than the tray.
+ *
+ * A native macOS menu dismisses itself on every click, so setting a time
+ * there means reopening the menu to see the result or change your mind.
+ * This is our own window, so a chip can toggle and stay put.
+ */
+const PRIME_TIMES = ['07:00', '08:00', '09:00', '10:00'];
+function renderPrimeBar(p) {
+  const bar = $('#primebar');
+  bar.classList.toggle('off', !p);
+  if (!p) return;
+  const chips = bar.querySelector('.chips');
+  const want = ['Off', ...PRIME_TIMES, 'Chain'];
+  if (chips.children.length !== want.length) {
+    chips.textContent = '';
+    for (const label of want) {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.dataset.value = label;
+      b.textContent = label === 'Off' ? 'Off'
+        : label === 'Chain' ? 'Chain'
+        : label.slice(0, 2);
+      b.title = label === 'Chain'
+        ? 'Open a new window as soon as the current one ends'
+        : label === 'Off' ? 'Never open a window automatically'
+        : `Open a window at ${label} on the days you chose`;
+      b.addEventListener('click', () => {
+        if (label === 'Chain') window.island.act('prime-chain', !p.chain);
+        else {
+          if (p.chain) window.island.act('prime-chain', false);
+          window.island.act('prime-at', label === 'Off' ? '' : label);
+        }
+      });
+      chips.appendChild(b);
+    }
+  }
+  for (const b of chips.children) {
+    const v = b.dataset.value;
+    const on = v === 'Chain' ? p.chain
+      : v === 'Off' ? (!p.chain && !p.at)
+      : (!p.chain && p.at === v);
+    b.classList.toggle('on', on);
   }
 }
 

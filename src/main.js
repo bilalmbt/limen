@@ -60,8 +60,26 @@ const DEFAULTS = {
   // Claude Code, and only when no window is already running, because a
   // message cannot restart a window that has already begun.
   primeAt: [],              // e.g. ["08:00"] — local times, "" or [] is off
-  primeDays: [1, 2, 3, 4, 5] // 0 = Sunday … 6 = Saturday
+  primeDays: [1, 2, 3, 4, 5], // 0 = Sunday … 6 = Saturday
+  primeChain: false,        // open a new window the moment the old one ends
+  // Cheapest model on purpose. Priming with the DEFAULT model would spend
+  // the weekly quota of whatever that is — so a widget meant to protect an
+  // Opus budget would quietly eat it, five times a day.
+  primeModel: 'haiku'
 };
+
+/**
+ * Exactly what a prime sends, in one place so it can be documented honestly.
+ * One word, on the cheapest model, with no session file and no MCP servers
+ * loaded: the smallest thing that still opens a five-hour window.
+ */
+function primeArgs() {
+  return ['-p', 'ok',
+    '--model', config.primeModel,
+    '--output-format', 'text',
+    '--no-session-persistence',   // don't litter the user's session history
+    '--strict-mcp-config'];       // don't load their MCP servers to say "ok"
+}
 
 /**
  * Config is user-editable, so every value is treated as untrusted. A bad
@@ -98,6 +116,10 @@ function sanitize(raw) {
   c.primeDays = Array.isArray(c.primeDays)
     ? c.primeDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
     : DEFAULTS.primeDays;
+  c.primeChain = c.primeChain === true;
+  c.primeModel = /^[a-z0-9-]{1,60}$/.test(String(c.primeModel || ''))
+    ? c.primeModel
+    : DEFAULTS.primeModel;
   return c;
 }
 
@@ -512,6 +534,11 @@ async function refresh(cause = 'schedule', force = false) {
     lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
     lastData.primeNote = primeNote();
     lastData.canPrime = data.ok && !sessionOpen();
+    lastData.prime = {
+      at: config.primeAt[0] || '',
+      chain: config.primeChain,
+      model: config.primeModel
+    };
     if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
     updateTray();
     // Checked on the data cadence: it needs to know whether a window is open,
@@ -665,6 +692,8 @@ let pendingTerminal = false;   // the first click nudges; a second opens Termina
 
 let priming = false;
 let lastPrime = store.read().lastPrime || { day: null, slot: null };
+let primeFailUntil = 0;                 // after a failure, stop retrying for a while
+const PRIME_RETRY_MS = 30 * 60 * 1000;
 
 /** Is a five-hour window running right now? */
 function sessionOpen() {
@@ -688,10 +717,12 @@ function sessionEndsAt() {
  * the grace window, so a slot cannot be stepped over.
  */
 async function checkPrime() {
-  if (priming || !config.primeAt.length) return;
+  if (priming) return;
+  if (!config.primeAt.length && !config.primeChain) return;
   // Nothing to prime with, and nothing worth spending: a broken sign-in
   // would just produce a failed message.
   if (credProblem() || !lastData.ok) return;
+  if (Date.now() < primeFailUntil) return;
 
   const now = new Date();
   const today = now.getDay();
@@ -704,30 +735,44 @@ async function checkPrime() {
     lastSlot: lastPrime.day === today ? lastPrime.slot : null,
     sessionOpen: sessionOpen()
   });
-  if (slot === null) return;
+
+  // Chain mode: whenever no window is running, start one. Deliberately
+  // unconditional — no schedule, no working hours. The boundaries then drift
+  // about five hours a day, which is the trade being made knowingly.
+  const chaining = config.primeChain && !sessionOpen();
+  if (slot === null && !chaining) return;
 
   priming = true;
-  // Recorded BEFORE the attempt: a crash mid-send must not leave the slot
-  // armed to fire again on the next tick.
-  lastPrime = { day: today, slot };
-  store.save({ lastPrime });
+  if (slot !== null) {
+    // Recorded BEFORE the attempt: a crash mid-send must not leave the slot
+    // armed to fire again on the next tick.
+    lastPrime = { day: today, slot };
+    store.save({ lastPrime });
+  }
+  const what = slot !== null ? `prime ${prime.formatSlot(slot)}` : 'prime chain';
   try {
     const bin = await resolveClaude();
     if (!bin) {
-      trace(`prime ${prime.formatSlot(slot)}: Claude Code not found; nothing sent`);
+      trace(`${what}: Claude Code not found; nothing sent`);
+      primeFailUntil = Date.now() + PRIME_RETRY_MS;
       return;
     }
-    trace(`prime ${prime.formatSlot(slot)}: opening a new session window`);
-    await new Promise((resolve) => {
-      execFile(bin, ['-p', 'ok', '--output-format', 'text'],
-        { timeout: 90000 }, (err) => {
-          trace(err
-            ? `prime ${prime.formatSlot(slot)}: failed — ${err.message}`
-            : `prime ${prime.formatSlot(slot)}: window opened`);
-          resolve();
-        });
+    trace(`${what}: opening a window (${config.primeModel})`);
+    const failed = await new Promise((resolve) => {
+      execFile(bin, primeArgs(), { timeout: 90000 }, (err) => {
+        if (err) trace(`${what}: failed — ${err.message}`);
+        resolve(Boolean(err));
+      });
     });
     await refresh('prime', true);
+    if (failed || !sessionOpen()) {
+      // Without this a chain whose prime keeps failing would try again on
+      // every poll, forever, because no window ever opens.
+      primeFailUntil = Date.now() + PRIME_RETRY_MS;
+      trace(`${what}: no window opened; next attempt in ${PRIME_RETRY_MS / 60000} min`);
+    } else {
+      trace(`${what}: window open until ${sessionEndsAt()}`);
+    }
   } finally {
     priming = false;
   }
@@ -751,13 +796,12 @@ async function primeNow() {
       sendSignIn('prime-failed');
       return;
     }
-    trace('prime now: opening a new session window');
+    trace(`prime now: opening a new session window (${config.primeModel})`);
     await new Promise((resolve) => {
-      execFile(bin, ['-p', 'ok', '--output-format', 'text'],
-        { timeout: 90000 }, (err) => {
-          if (err) trace(`prime now: failed — ${err.message}`);
-          resolve();
-        });
+      execFile(bin, primeArgs(), { timeout: 90000 }, (err) => {
+        if (err) trace(`prime now: failed — ${err.message}`);
+        resolve();
+      });
     });
     await refresh('prime-now', true);
     sendSignIn(sessionOpen() ? 'primed' : 'prime-failed');
@@ -776,6 +820,18 @@ function setPrimeTime(time) {
   pushUsage();
 }
 
+function setPrimeChain(on) {
+  config.primeChain = on === true;
+  saveConfig({ primeChain: config.primeChain });
+  primeFailUntil = 0;
+  trace(config.primeChain
+    ? 'chain priming on: a new window will open whenever none is running'
+    : 'chain priming off');
+  buildMenu(true);
+  pushUsage();
+  if (config.primeChain) checkPrime();
+}
+
 function setPrimeWeekdays(weekdaysOnly) {
   config.primeDays = weekdaysOnly ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
   saveConfig({ primeDays: config.primeDays });
@@ -786,12 +842,22 @@ function setPrimeWeekdays(weekdaysOnly) {
 /** Re-send the current reading, so a settings change shows up immediately. */
 function pushUsage() {
   lastData.primeNote = primeNote();
-  lastData.canPrime = !sessionOpen();
+  lastData.canPrime = Boolean(lastData.ok) && !sessionOpen();
+  lastData.prime = {
+    at: config.primeAt[0] || '',
+    chain: config.primeChain,
+    model: config.primeModel
+  };
   if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
 }
 
 /** "next at 08:00" / "next Mon 08:00" — so an armed feature says so. */
 function primeNote() {
+  if (config.primeChain) {
+    return sessionOpen()
+      ? `new window when this one ends (${sessionEndsAt()})`
+      : 'opening a new window…';
+  }
   if (!config.primeAt.length) return '';
   const now = new Date();
   const next = prime.nextSlot({
@@ -937,18 +1003,24 @@ function buildMenu(force = false) {
         },
         { type: 'separator' },
         { label: 'Open one automatically at', enabled: false },
-        ...['', '06:00', '07:00', '08:00', '09:00', '10:00'].map((t) => ({
+        ...['', '07:00', '08:00', '09:00', '10:00'].map((t) => ({
           label: t || 'Never',
           type: 'radio',
-          checked: (config.primeAt[0] || '') === t,
-          click: () => setPrimeTime(t)
+          checked: !config.primeChain && (config.primeAt[0] || '') === t,
+          click: () => { setPrimeChain(false); setPrimeTime(t); }
         })),
+        {
+          label: 'Whenever the current one ends',
+          type: 'radio',
+          checked: config.primeChain,
+          click: () => setPrimeChain(true)
+        },
         { type: 'separator' },
         {
           label: 'Weekdays only',
           type: 'checkbox',
           checked: config.primeDays.length === 5,
-          enabled: config.primeAt.length > 0,
+          enabled: config.primeAt.length > 0 && !config.primeChain,
           click: (item) => setPrimeWeekdays(item.checked)
         }
       ]
@@ -1113,7 +1185,8 @@ function playScene(scene) {
       ...FIXTURE,
       gauges: FIXTURE.gauges.map((g) => g.id === 'session' ? { ...g, percent: 0 } : g),
       canPrime: true,
-      primeNote: 'new window tomorrow 08:00'
+      primeNote: 'new window tomorrow 08:00',
+      prime: { at: '08:00', chain: false, model: 'haiku' }
     });
     send('panel', true);
   } else if (scene === 'pace') {
@@ -1288,9 +1361,16 @@ function ensureTallEnough() {
   if (height > b.height) win.setBounds({ ...b, height });
 }
 
-ipcMain.on('island-action', (e, name) => {
+ipcMain.on('island-action', (e, name, value) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
-  if (name === 'refresh') {
+  if (name === 'prime-at') {
+    // Only a time we offer, or nothing. The renderer is trusted, but a
+    // value that reaches execFile deserves the check anyway.
+    const t = prime.parseTime(value) !== null ? String(value) : '';
+    setPrimeTime(t);
+  } else if (name === 'prime-chain') {
+    setPrimeChain(value === true);
+  } else if (name === 'refresh') {
     refresh('button', true);
   } else if (name === 'sign-in') {
     signInViaClaudeCode();

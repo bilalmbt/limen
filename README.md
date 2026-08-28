@@ -80,24 +80,46 @@ boundaries land at 16:00 and 21:00 — so a cap you hit at 15:00 blocks you for
 an hour of the working day. Prime at 08:00 instead and they land at 13:00 and
 18:00, where a pause costs you a coffee break.
 
-It lives in the widget, under **Session window** in the tray menu:
+### The controls
 
-| Control | What it does |
-|---|---|
-| **Open one now** | Sends one short message through Claude Code, opening a window immediately. Disabled while a window is running — it reads *Open until 10:50 PM* instead, because a message cannot restart a window that has begun. |
-| **Open one automatically at** | Never / 06:00 / 07:00 / 08:00 / 09:00 / 10:00. |
-| **Weekdays only** | On by default once a time is chosen. |
+**In the panel**, an `Auto-open` row: `Off · 07 · 08 · 09 · 10 · Chain`.
+Chips toggle in place — a native macOS menu dismisses itself on every click,
+so choosing a time there means reopening it to see the result. When no window
+is running the panel also shows **Open a session window**, which is the one
+moment that button would do anything.
 
-The panel carries the same button — but only when no window is running,
-which is the one moment it would do anything. Any other time is available by
-hand in the config file:
+**In the tray**, the same under **Session window**, plus *Weekdays only* and
+an *Open one now* item that disables itself while a window runs — it reads
+*Open until 10:50 PM* rather than just going grey.
+
+`Chain` is the blunt option: open a new window the moment the current one
+ends, around the clock. It gives you continuous windows, at the cost of
+boundaries that drift about five hours a day and land wherever they land.
+Scheduled times are the better default; Chain is there because sometimes you
+just want the thing to be always-on.
+
+Any other time is available by hand:
 
 ```json
-{ "primeAt": ["08:00"], "primeDays": [1, 2, 3, 4, 5] }
+{ "primeAt": ["07:30"], "primeDays": [1, 2, 3, 4, 5], "primeChain": false }
 ```
 
-At a scheduled time the island sends one short message through Claude Code to
-open a window. Three rules keep it honest:
+### What it actually sends
+
+```
+claude -p "ok" --model haiku --output-format text \
+       --no-session-persistence --strict-mcp-config
+```
+
+One word, on **Haiku** — the cheapest model, chosen deliberately. Priming
+with your *default* model would spend the weekly quota of whatever that is,
+so a widget meant to protect an Opus budget would quietly eat it several
+times a day. The session window is account-wide, so a Haiku message opens it
+just as well as an expensive one. `--no-session-persistence` keeps it out of
+your Claude Code history, and `--strict-mcp-config` avoids loading your MCP
+servers to say one word. Override with `"primeModel"` if you want.
+
+Three rules keep it honest:
 
 - **It only acts when acting would do something.** A message cannot restart a
   window that is already running — that window still ends five hours after

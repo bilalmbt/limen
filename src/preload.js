@@ -9,6 +9,6 @@ contextBridge.exposeInMainWorld('island', {
   onWings: (fn) => ipcRenderer.on('wings', (_e, v) => fn(v)),
   onBusy: (fn) => ipcRenderer.on('busy', (_e, v) => fn(v)),
   onSignIn: (fn) => ipcRenderer.on('signin', (_e, v) => fn(v)),
-  act: (name) => ipcRenderer.send('island-action', String(name)),
+  act: (name, value) => ipcRenderer.send('island-action', String(name), value),
   reportSurface: (rect) => ipcRenderer.send('island-surface', rect)
 });
