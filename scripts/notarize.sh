@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Notarize and staple a built Limen .dmg.
+#
+# Credentials are never passed on the command line and never live in this
+# repo: they are stored once in the keychain, by you, with
+#
+#   xcrun notarytool store-credentials "limen-notary" \
+#     --apple-id "<your-apple-id>" --team-id GX922H5C5A
+#
+# which prompts for an app-specific password from appleid.apple.com. Every
+# run after that refers to the profile by name only.
+set -euo pipefail
+
+PROFILE="${NOTARY_PROFILE:-limen-notary}"
+DMG="${1:-$(ls -t dist/*.dmg 2>/dev/null | head -1)}"
+
+[ -n "$DMG" ] && [ -f "$DMG" ] || { echo "No .dmg found. Run: npm run dist"; exit 1; }
+xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || {
+  echo "No stored credentials for profile \"$PROFILE\"."
+  echo "Create them once (it will prompt for an app-specific password):"
+  echo "  xcrun notarytool store-credentials \"$PROFILE\" --apple-id <your-apple-id> --team-id GX922H5C5A"
+  exit 1
+}
+
+echo "Submitting $DMG — Apple usually answers in a few minutes…"
+xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+
+# Stapling writes the ticket INTO the dmg, so the app validates on a Mac
+# that is offline the first time it is opened.
+echo "Stapling…"
+xcrun stapler staple "$DMG"
+
+echo "Verifying as Gatekeeper will see it:"
+spctl -a -vvv -t install "$DMG"
+echo "Done."
