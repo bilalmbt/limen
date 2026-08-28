@@ -73,11 +73,29 @@ html, body {
   background: #000;
   border-radius: 0 0 11px 11px;
   transition: opacity 0.25s ease;
+  /* A real notch is a camera housing and can hold nothing. A drawn one is
+     ours, so it centres whatever it is given — and clips nothing: the
+     renderer removes a label that will not fit rather than cutting it. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 10px;
   /* Above the panel. Both are positioned and the panel comes later in the
      DOM, so without this the panel painted over the notch's bottom 10px —
      shearing off the rounded mouth that makes it read as a notch. */
   z-index: 4;
 }
+/* Set like a wing's tag, because that is what it is: the label that tells
+   you what the numbers either side of it are a percentage of. */
+.notch-plan {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
+}
+
 /* A side a wing joins loses its rounding: the band continues, so a curved
    corner there would read as a bite out of one continuous shape. */
 #fakenotch.join-left { border-bottom-left-radius: 0; }

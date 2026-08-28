@@ -8,7 +8,9 @@
 </head>
 <body>
   <div id="stage">
-    <div id="fakenotch" class="off" aria-hidden="true"></div>
+    <!-- On a display with no notch of its own, this rectangle is ours rather
+         than a camera housing — so it can hold something. -->
+    <div id="fakenotch" class="off"><span class="notch-plan"></span></div>
 
     <!-- Each chip carries one unit per limit, built in the renderer: a chip
          holds one number most of the time and two when three limits are
