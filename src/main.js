@@ -50,10 +50,26 @@ const CONFIG_PATH = require('./paths').file('config.json');
 function primeArgs() {
   return ['-p', 'ok',
     '--model', config.primeModel,
-    '--output-format', 'text',
-    '--no-session-persistence',   // don't litter the user's session history
-    '--strict-mcp-config'];       // don't load their MCP servers to say "ok"
+    ...MINIMAL_CLAUDE_ARGS];
 }
+
+/**
+ * The flags that keep a headless Claude Code run to itself.
+ *
+ * Shared, because they were not. The priming path had them and the sign-in
+ * path did not, so clicking "Sign in with Claude Code" started the user's
+ * ENTIRE Claude Code environment — every MCP server they have configured —
+ * as a child of this app. macOS attributes a child's file access to the
+ * responsible process, so their servers reaching for Downloads or the media
+ * library produced prompts that said "Limen would like to access…", which
+ * is precisely the kind of thing that makes a small widget look like
+ * spyware.
+ */
+const MINIMAL_CLAUDE_ARGS = [
+  '--output-format', 'text',
+  '--no-session-persistence',   // don't litter the user's session history
+  '--strict-mcp-config'         // don't load their MCP servers to say "ok"
+];
 
 /**
  * Read the settings, and CLEAN THE FILE if reading it found anything wrong.
@@ -629,29 +645,43 @@ const WELL_KNOWN_CLAUDE = [
   '/usr/local/bin/claude'
 ];
 
+/** A path that exists and can be executed — `command -v` happily returns an
+    alias or a shell function, neither of which is one. */
+function usableBinary(p) {
+  try {
+    return Boolean(p) && path.isAbsolute(p) && (fs.accessSync(p, fs.constants.X_OK), true);
+  } catch (_) { return false; }
+}
+
 /**
- * Claude Code's binary, found the way the user's own shell would find it.
+ * Claude Code's binary — asking the user's shell only when we have to.
  *
- * `-i` matters: `zsh -lc` reads .zshenv/.zprofile but NOT .zshrc, which is
- * exactly where nvm, fnm, mise and Claude Code's own installer put their
- * PATH line — without it the lookup fails for a large slice of users and
- * every sign-in falls through to opening a Terminal.
+ * The order is the point. Looking in the places Claude Code and Homebrew
+ * actually install it costs nothing and answers for almost everyone. Only
+ * when that fails do we spawn a shell, and only then does it escalate to an
+ * INTERACTIVE one.
  *
- * The result is validated before use. `command -v` happily returns an alias
- * or a shell function, neither of which is a path.
+ * `-i` is what reads .zshrc, which is where nvm, fnm and mise put their PATH
+ * line — so it cannot simply be dropped. But an interactive shell also runs
+ * every other thing in a person's startup files, as a child of this app and
+ * therefore under this app's name in any permission prompt they raise. That
+ * is a lot of someone else's code to run in order to locate one binary, so
+ * it is now the last resort rather than the first move.
  */
-function resolveClaude() {
-  return new Promise((resolve) => {
-    execFile('/bin/zsh', ['-ilc', 'command -v claude'], { timeout: 8000 }, (err, stdout) => {
+async function resolveClaude() {
+  const known = WELL_KNOWN_CLAUDE.find(usableBinary);
+  if (known) return known;
+
+  const ask = (args) => new Promise((resolve) => {
+    execFile('/bin/zsh', args, { timeout: 8000 }, (err, stdout) => {
       const found = !err && stdout ? stdout.trim().split('\n').pop() : '';
-      const usable = (p) => {
-        try {
-          return Boolean(p) && path.isAbsolute(p) && (fs.accessSync(p, fs.constants.X_OK), true);
-        } catch (_) { return false; }
-      };
-      resolve(usable(found) ? found : WELL_KNOWN_CLAUDE.find(usable) || null);
+      resolve(usableBinary(found) ? found : null);
     });
   });
+
+  // Login shell first: .zshenv/.zprofile, no .zshrc, no plugins.
+  return await ask(['-lc', 'command -v claude']) ||
+         await ask(['-ilc', 'command -v claude']);
 }
 
 let signingIn = false;
@@ -931,7 +961,7 @@ async function signInViaClaudeCode() {
     if (bin) {
       trace('sign-in: nudging Claude Code headlessly');
       await new Promise((resolve) => {
-        execFile(bin, ['-p', 'ok', '--output-format', 'text'], { timeout: 60000 }, (err) => {
+        execFile(bin, ['-p', 'ok', ...MINIMAL_CLAUDE_ARGS], { timeout: 60000 }, (err) => {
           if (err) trace(`sign-in: nudge failed: ${err.message}`);
           resolve();
         });
