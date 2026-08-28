@@ -171,9 +171,40 @@ function sendBusy(on) {
   if (ready && win && !win.isDestroyed()) win.webContents.send('busy', on === true);
 }
 
+/**
+ * Where an installed copy writes its log.
+ *
+ * A packaged app launched from Finder has nowhere to put stdout: it is not
+ * a terminal, and console.log does not reach the unified log either, so
+ * `log show` returns LaunchServices noise and nothing of ours. The result is
+ * an app that cannot be diagnosed by the person running it — they can only
+ * describe what they saw. Running from a checkout keeps the terminal, which
+ * is why this was never noticed.
+ */
+const LOG_PATH = path.join(os.homedir(), 'Library', 'Logs', 'Limen.log');
+const LOG_CAP = 512 * 1024;   // a widget's log is for the last hour, not the year
+
+let logStream = null;
+function openLog() {
+  try {
+    // Truncate on launch past the cap rather than rotating: nobody wants
+    // Limen.log.3, and the interesting part is always the current run.
+    let flags = 'a';
+    try { if (fs.statSync(LOG_PATH).size > LOG_CAP) flags = 'w'; } catch (_) {}
+    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+    logStream = fs.createWriteStream(LOG_PATH, { flags });
+  } catch (_) {
+    logStream = null;   // a read-only home is not a reason to refuse to run
+  }
+}
+
 /** One log line per state change, never one per poll. */
 function trace(event) {
-  console.log(`[${new Date().toISOString()}] ${event}`);
+  const line = `[${new Date().toISOString()}] ${event}`;
+  console.log(line);
+  if (logStream) {
+    try { logStream.write(line + '\n'); } catch (_) { logStream = null; }
+  }
 }
 
 // --- Placement --------------------------------------------------------------
@@ -1501,6 +1532,9 @@ process.on('unhandledRejection', (err) => trace(`unhandled rejection: ${err}`));
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
+  // Before anything worth tracing happens, and only for an installed copy:
+  // a checkout already has a terminal to write to.
+  if (app.isPackaged) { openLog(); trace(`log: ${LOG_PATH}`); }
   setAboutPanel();
 
   const display = islandDisplay();

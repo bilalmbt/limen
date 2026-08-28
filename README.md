@@ -47,6 +47,11 @@ analytics of any kind.
 
 Requires Claude Code signed in, on macOS 11 or later.
 
+An installed copy writes to `~/Library/Logs/Limen.log` &mdash; one line per
+state change, which is the first thing to read when it does something
+surprising. (`log show` will not have it: a Finder-launched app's stdout
+reaches neither a terminal nor the unified log.)
+
 ## Running it from source
 
 Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
