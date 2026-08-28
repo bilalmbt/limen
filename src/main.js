@@ -548,7 +548,6 @@ async function refresh(cause = 'schedule', force = false) {
  * OS notification. Same ledger for both, so nothing ever speaks twice.
  */
 function raiseAlerts(gauges, summary) {
-  if (alertsPausedUntil > Date.now()) return;
   const thresholds = Array.isArray(config.alertAt) ? config.alertAt : [];
   if (!thresholds.length) return;
 
@@ -567,6 +566,14 @@ function raiseAlerts(gauges, summary) {
     alertLedger[`pace-${gauge.id}`] = { window: gauge.resetsAt || null, level: 'pace' };
     paced.push({ gauge, level: 'pace', minutes: Math.round(t.exhaustsInMs / 60000) });
   }
+
+  // A pause SKIPS; it does not defer. Returning before the ledger ran meant a
+  // crossing during the pause was never recorded as spoken, so it peeked the
+  // moment the pause lapsed — news forty minutes old, arriving as an
+  // interruption, from a control asked for silence. The ledger above has now
+  // recorded these, so nothing replays. What was missed stays missed, and
+  // the wings and the panel carry the number the instant you look.
+  if (alertsPausedUntil > Date.now()) return;
 
   // Queue them: raising two in one poll used to overwrite the first peek
   // while the ledger had already recorded it as spoken, so it was never
