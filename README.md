@@ -17,7 +17,7 @@ around the notch instead of the screen edge.
 | **Dormant** | Nothing. The notch is just the notch. | 95% of the day |
 | **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number in words: `Session 73%  51m left`, `Week 21%`, `Fable 52%`. You choose which limits appear — **Show** in the panel: `Session`, `Week`, and `Model`, whichever model is busiest. Three is the most the band holds, and the third rides beside the second in the right-hand chip, which then drops its reset note. The band never draws narrower than the panel that unfolds from it, so their edges meet whatever you have asked for. | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
 | **Peek** | One line that drops below the notch for 4 seconds, then retracts. | A quota crosses an alert mark (80, 95) |
-| **Expanded** | Every gauge, led by its number: session, weekly, per-model, with reset times, the **active limit** badge, and — when the pace would exhaust a quota before its window resets — `full in ~44 min`. | Park on the notch, the tray, or `⌘⇧U` |
+| **Expanded** | Every gauge, led by its number: session, weekly, per-model, with reset times, the plan the account is on (`Claude Max 20x`), the **active limit** badge, and — when the pace would exhaust a quota before its window resets — `full in ~44 min`. | Park on the notch, the tray, or `⌘⇧U` |
 
 Colors follow headroom, not model: green below 50%, amber to 74%, orange to
 89%, red beyond — a ramp that steps down in luminance as well as hue, so it

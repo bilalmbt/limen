@@ -405,6 +405,9 @@ function renderPanel() {
 
   const d = state.data;
   const gauges = d.gauges || [];
+  // Empty string, never a placeholder: an account that does not say which
+  // plan it is on should read as though the line was never there.
+  panel.querySelector('.plan').textContent = typeof d.plan === 'string' ? d.plan : '';
   const stale = d.stale === true || d.ok === false;
   panel.classList.toggle('stale', stale);
 

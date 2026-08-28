@@ -506,6 +506,10 @@ async function refresh(cause = 'schedule', force = false) {
       lastData = lastGood
         ? { ...lastGood, stale: true, reason: data.reason, checkedAt: data.fetchedAt, retryAt: Date.now() + delay }
         : { ...data, retryAt: Date.now() + delay };
+      // The plan comes from the credentials, not the endpoint, so a failed
+      // fetch still knows it — and a restored reading from yesterday should
+      // not claim a plan the account may have changed since.
+      if (data.plan) lastData.plan = data.plan;
     }
 
     logState(data);
@@ -1261,6 +1265,7 @@ const FIXTURE = {
   alertAt: [80, 95],
   wingInfo: 'remaining',
   wingSources: ['session', 'weekly'],
+  plan: 'Max 20x',
   // The real panel always carries a schedule — decorate() sets one on every
   // reading — so a scene without it was showing a panel that cannot happen,
   // and the band's own controls appeared in no scene at all.

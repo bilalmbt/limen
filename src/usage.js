@@ -231,6 +231,34 @@ function reasonFor(err) {
   return 'network';
 }
 
+/**
+ * Which plan the account is on, in words a person would use: "Max 20x",
+ * "Max 5x", "Pro".
+ *
+ * Both fields are Claude Code's own vocabulary, not a documented API, and
+ * they sit in the credentials blob we already read for the token — no extra
+ * request, no new permission. `rateLimitTier` reads
+ * "default_claude_max_20x"; the multiplier is pulled out by shape rather
+ * than matched against a list, so a tier that does not exist yet still
+ * reads correctly the day it ships.
+ *
+ * Nothing recognised means nothing shown. Printing "default_claude_max_20x"
+ * at someone because we could not parse it is worse than staying quiet, and
+ * setups running on CLAUDE_CODE_OAUTH_TOKEN have no tier at all.
+ */
+function planLabel(cred) {
+  if (!cred) return '';
+  const PLANS = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise', free: 'Free' };
+  const plan = PLANS[String(cred.subscriptionType || '').trim().toLowerCase()] || '';
+  if (!plan) return '';
+  // Only Max is sold in multiples; a "5x" on any other plan would be our
+  // misreading of a string we do not own.
+  if (plan !== 'Max') return plan;
+  const tier = String(cred.rateLimitTier || '');
+  const times = tier.match(/(\d{1,3})x\b/);
+  return times ? `${plan} ${times[1]}x` : plan;
+}
+
 async function fetchUsage() {
   const cred = await readCredentials();
   if (!cred || !cred.accessToken) {
@@ -241,8 +269,9 @@ async function fetchUsage() {
     // it for them: rotating the refresh token would invalidate their session.
     return { ok: false, reason: 'token-expired', fetchedAt: Date.now(), gauges: [] };
   }
+  const plan = planLabel(cred);
   try {
-    return normalize(await httpsGetJson(cred.accessToken));
+    return { ...normalize(await httpsGetJson(cred.accessToken)), plan };
   } catch (err) {
     return {
       ok: false,
@@ -250,12 +279,13 @@ async function fetchUsage() {
       retryAfter: err.retryAfter,
       detail: err.message,
       fetchedAt: Date.now(),
-      gauges: []
+      gauges: [],
+      plan
     };
   }
 }
 
-module.exports = { fetchUsage, readCredentials, normalize, reasonFor };
+module.exports = { fetchUsage, readCredentials, normalize, reasonFor, planLabel };
 
 if (require.main === module) {
   // `--oneline` is for a tmux status bar, a shell prompt, or a Claude Code

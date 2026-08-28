@@ -3,7 +3,7 @@
    is that a missing quota never turns into a displayed zero. */
 
 const assert = require('assert');
-const { normalize } = require('../src/usage');
+const { normalize, planLabel } = require('../src/usage');
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
@@ -84,6 +84,29 @@ test('a failure is named for what it is, not blamed on the network', () => {
   assert.strictEqual(reasonFor({ status: 403 }), 'unauthorized');
   assert.strictEqual(reasonFor({ status: 503 }), 'server');
   assert.strictEqual(reasonFor({}), 'network', 'only a real transport failure is a network error');
+});
+
+test('the plan is read from the credentials, in words a person would use', () => {
+  const cred = (subscriptionType, rateLimitTier) => ({ subscriptionType, rateLimitTier });
+  assert.strictEqual(planLabel(cred('max', 'default_claude_max_20x')), 'Max 20x');
+  assert.strictEqual(planLabel(cred('max', 'default_claude_max_5x')), 'Max 5x');
+  assert.strictEqual(planLabel(cred('pro')), 'Pro');
+  assert.strictEqual(planLabel(cred('MAX', 'default_claude_max_20x')), 'Max 20x', 'case is theirs, not ours');
+});
+
+test('an unreadable plan is shown as nothing, never as its codename', () => {
+  // Both fields are Claude Code's own vocabulary and can change without
+  // notice. Printing "default_claude_max_20x" at someone because we could
+  // not parse it is worse than staying quiet.
+  const cred = (subscriptionType, rateLimitTier) => ({ subscriptionType, rateLimitTier });
+  assert.strictEqual(planLabel(cred('max', 'some_tier_we_have_never_seen')), 'Max',
+    'the plan survives even when the multiplier does not');
+  assert.strictEqual(planLabel(cred('something_new', 'default_claude_max_20x')), '',
+    'an unknown plan says nothing, and takes the multiplier down with it');
+  assert.strictEqual(planLabel(cred('pro', 'default_claude_max_20x')), 'Pro',
+    'only Max is sold in multiples; a 5x anywhere else is our misreading');
+  assert.strictEqual(planLabel({}), '', 'a token-only setup has no plan to report');
+  assert.strictEqual(planLabel(null), '');
 });
 
 console.log(`\n${passed} normalisation tests passed`);

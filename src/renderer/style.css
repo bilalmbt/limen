@@ -346,6 +346,16 @@ html, body {
 }
 .star { color: var(--accent); font-size: var(--t-title); line-height: 1; }
 .title { font-size: var(--t-title); font-weight: 700; }
+/* The plan is context for the numbers, not a heading: it rides beside the
+   title a step down in weight and colour, and takes no room at all when the
+   account does not say which plan it is on. */
+.plan {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--ink-dim);
+  margin-left: -3px;
+}
+.plan:empty { display: none; }
 .when {
   margin-left: auto;
   font-size: var(--t-meta);
