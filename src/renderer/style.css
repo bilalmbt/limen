@@ -116,7 +116,19 @@ html, body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--ink-dim);
+  color: rgba(255, 255, 255, 0.78);
+}
+/* The label takes the tone at the top of the scale, so a glance that never
+   reaches the number still lands on something red. */
+.wing.hot .tag { color: var(--hot); }
+.wing.crit .tag { color: var(--crit); }
+
+/* Reserved width, right-aligned: without it 9% -> 10% widens the chip, which
+   resizes the whole band and shifts the panel under it. A number that moves
+   its own container is the hardest kind to read. */
+.wing .pct {
+  min-width: 3.4ch;
+  text-align: right;
 }
 /* How long is left, or when it ends. Dimmer than the number and set off by
    a hairline, so the percentage still reads first. */
@@ -126,15 +138,26 @@ html, body {
   color: var(--ink-dim);
   padding-left: 8px;
   margin-left: 1px;
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  min-width: 4ch;
+  text-align: right;
 }
-.wing .rst:empty { display: none; }
+.wing .rst:empty { display: none; padding-left: 0; border-left: none; min-width: 0; }
 /* Tone reaches the number too. In a 14px ring alone, a peripheral glance at
    the menu bar could not tell healthy from hot. */
 .wing .pct { color: #FFFFFF; background: none; }
 .wing .pct.tone-hot { color: var(--hot); }
 .wing .pct.tone-crit { color: var(--crit); }
-.wing .ring { width: 15px; height: 15px; }
+/* A chunkier annulus at menu-bar size: at a 26% stroke the arc was a hairline
+   and the ring read as an empty grey circle, contributing nothing a glance
+   could use. */
+.wing .ring {
+  width: 15px; height: 15px;
+  --stroke: 34%;
+  /* A brighter track so the ring reads as a ring against pure black, rather
+     than as a smudge with a coloured fleck on it. */
+  --track: rgba(255, 255, 255, 0.28);
+}
 /* Flush against the notch: the inner corner is square and tucks 2px under
    the notch edge, so a slightly-off width estimate can never open a seam. */
 .wing.left { right: calc(50% + var(--notch-w) / 2 - 2px); border-radius: 0 0 0 11px; }

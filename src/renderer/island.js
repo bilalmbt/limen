@@ -93,8 +93,17 @@ function locale() { return (state.geometry && state.geometry.locale) || undefine
 function timeFormat() { return (state.geometry && state.geometry.timeFormat) || 'auto'; }
 function wingInfo() { return (state.data && state.data.wingInfo) || 'off'; }
 
-function setRing(el, percent, severity) {
-  el.style.setProperty('--p', String(Math.max(0, Math.min(100, percent))));
+/**
+ * @param {number} minSweep  smallest arc a non-zero value may draw.
+ *
+ * At menu-bar size a true 3% arc is a hairline: the ring reads as an empty
+ * grey circle and contributes nothing a glance can use. A floor makes the
+ * TONE legible while the exact number sits right beside it — the same
+ * bargain the panel's bars already make with `min-width`.
+ */
+function setRing(el, percent, severity, minSweep = 0) {
+  const p = Math.max(0, Math.min(100, percent));
+  el.style.setProperty('--p', String(p > 0 ? Math.max(p, minSweep) : 0));
   el.style.setProperty('--tone', `var(--${VM.tone(percent, severity)})`);
 }
 
@@ -192,8 +201,11 @@ function renderWings() {
     const el = wingsEl.querySelector(`.wing.${side}`);
     el.classList.toggle('empty', !gauge);
     if (!gauge) return;
+    const tone = VM.tone(gauge.percent, gauge.severity);
+    el.classList.toggle('hot', tone === 'hot');
+    el.classList.toggle('crit', tone === 'crit');
     el.querySelector('.tag').textContent = VM.wingTag(gauge);
-    setRing(el.querySelector('.ring'), gauge.percent, gauge.severity);
+    setRing(el.querySelector('.ring'), gauge.percent, gauge.severity, 9);
     const pct = el.querySelector('.pct');
     // Tone reaches the number, not just the ring: at a peripheral glance
     // the ring alone could not separate healthy from hot.

@@ -1205,7 +1205,7 @@ function playScene(scene) {
   // Hermetic: state every scene's wings explicitly. Inheriting the running
   // config meant "expanded" silently rendered wings on a machine that had
   // them on, so the no-wings panel was never actually reviewed.
-  send('wings', scene === 'wings' || scene === 'full' || scene === 'collapse');
+  send('wings', scene.startsWith('wings') || scene === 'full' || scene === 'collapse');
   if (scene === 'wings') {
     send('usage', FIXTURE);
   } else if (scene === 'expired') {
@@ -1219,6 +1219,18 @@ function playScene(scene) {
   } else if (scene === 'billing') {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
     send('panel', true);
+  } else if (scene === 'wings-low' || scene === 'wings-high') {
+    // The two ends of the scale: a nearly-empty ring is the case where a
+    // menu-bar gauge stops carrying information, and a full one is where
+    // the tone has to shout.
+    const low = scene === 'wings-low';
+    send('usage', {
+      ...FIXTURE,
+      gauges: [
+        { ...FIXTURE.gauges[0], percent: low ? 3 : 97 },
+        { ...FIXTURE.gauges[2], percent: low ? 8 : 100 }
+      ]
+    });
   } else if (scene === 'priming') {
     // No window running: the one moment the button would do something.
     send('usage', {
