@@ -33,7 +33,7 @@ const I = require('./island-state');
 const trend = require('./trend');
 const autostart = require('./autostart');
 const prime = require('./prime');
-const { DEFAULTS, sanitize } = require('./config');
+const { DEFAULTS, sanitize, toggleSource } = require('./config');
 const VM = require('./viewmodel');
 const { execFile } = require('child_process');
 
@@ -516,8 +516,7 @@ async function refresh(cause = 'schedule', force = false) {
     lastData.primeNote = primeNote();
     lastData.canPrime = data.ok && !sessionOpen();
     lastData.wingInfo = config.wingInfo;
-  lastData.wingCount = config.wingCount;
-    lastData.wingCount = config.wingCount;
+    lastData.wingSources = config.wingSources;
     lastData.prime = {
       at: config.primeAt[0] || '',
       days: config.primeDays,
@@ -824,10 +823,12 @@ function setContentProtection(on) {
   buildMenu(true);
 }
 
-function setWingCount(count) {
-  config.wingCount = count === 2 ? 2 : 1;
-  saveConfig({ wingCount: config.wingCount });
-  trace(`chips: ${config.wingCount}`);
+/** Turn one limit on or off in the band. The rules — canonical order, at
+    most three, never empty — live in config.js so they can be tested. */
+function setWingSource(name) {
+  config.wingSources = toggleSource(config.wingSources, name);
+  saveConfig({ wingSources: config.wingSources });
+  trace(`chips: ${config.wingSources.join(', ')}`);
   pushUsage();
 }
 
@@ -874,7 +875,7 @@ function decorate(d) {
   d.primeNote = primeNote();
   d.canPrime = Boolean(d.ok) && !sessionOpen();
   d.wingInfo = config.wingInfo;
-  d.wingCount = config.wingCount;
+  d.wingSources = config.wingSources;
   d.prime = {
     at: config.primeAt[0] || '',
     days: config.primeDays,
@@ -1213,7 +1214,11 @@ const FIXTURE = {
   fetchedAt: Date.now() - 60000,
   alertAt: [80, 95],
   wingInfo: 'remaining',
-  wingCount: 2,
+  wingSources: ['session', 'weekly'],
+  // The real panel always carries a schedule — decorate() sets one on every
+  // reading — so a scene without it was showing a panel that cannot happen,
+  // and the band's own controls appeared in no scene at all.
+  prime: { at: '', days: [1, 2, 3, 4, 5], chain: false, model: 'haiku' },
   gauges: [
     { id: 'session', kind: 'session', percent: 73, resetsAt: new Date(Date.now() + 51 * 60000).toISOString(), resetStyle: 'relative', active: true },
     { id: 'weekly', kind: 'weekly', percent: 21, resetsAt: '2026-08-31T16:17:00Z', resetStyle: 'absolute', active: false },
@@ -1229,10 +1234,22 @@ function playScene(scene) {
   // Hermetic: state every scene's wings explicitly. Inheriting the running
   // config meant "expanded" silently rendered wings on a machine that had
   // them on, so the no-wings panel was never actually reviewed.
-  const WITH_WINGS = ['wings', 'wings-low', 'wings-high', 'full', 'full-one', 'collapse'];
+  // 'priming' is in the list because the self-test clicks through this scene:
+  // two of the panel's controls now decide what the CHIPS show, and a control
+  // whose row is hidden cannot be clicked to prove its wiring.
+  const WITH_WINGS = ['wings', 'wings-low', 'wings-high', 'wings-week', 'wings-three',
+    'full', 'full-one', 'full-three', 'collapse', 'priming'];
   send('wings', WITH_WINGS.includes(scene));
   if (scene === 'wings') {
     send('usage', FIXTURE);
+  } else if (scene === 'wings-week') {
+    // The case the count could not express: the session beside the weekly
+    // quota, whatever the API happens to be flagging as active.
+    send('usage', FIXTURE);
+  } else if (scene === 'wings-three') {
+    // The widest band the settings allow — two limits sharing the right
+    // chip. If the band is ever going to crowd the menu bar, it is here.
+    send('usage', { ...FIXTURE, wingSources: ['session', 'weekly', 'model'] });
   } else if (scene === 'expired') {
     // A cached reading plus an expired token — the normal way a token dies,
     // and the case where the sign-in button used to be missing entirely.
@@ -1245,7 +1262,13 @@ function playScene(scene) {
     send('usage', { ...FIXTURE, extraUsageEnabled: true });
     send('panel', true);
   } else if (scene === 'full-one') {
-    send('usage', { ...FIXTURE, wingCount: 1 });
+    // One source: the band is a single chip, and the control greys that
+    // source out — turning off the last one would leave nothing to draw.
+    send('usage', { ...FIXTURE, wingSources: ['model'] });
+    send('panel', true);
+  } else if (scene === 'full-three') {
+    // Three: the cap. The fourth source is greyed for the opposite reason.
+    send('usage', { ...FIXTURE, wingSources: ['session', 'weekly', 'model'] });
     send('panel', true);
   } else if (scene === 'wings-low' || scene === 'wings-high') {
     // The two ends of the scale: a nearly-empty ring is the case where a
@@ -1341,7 +1364,7 @@ function runSelfTest() {
     })()`);
     trace(`selftest: ${JSON.stringify(found)}`);
     setTimeout(() => {
-      trace(`selftest: wingCount=${config.wingCount} wingInfo=${config.wingInfo} ` +
+      trace(`selftest: wingSources=${config.wingSources.join('+')} wingInfo=${config.wingInfo} ` +
         `primeAt=${JSON.stringify(config.primeAt)} chain=${config.primeChain}`);
       app.exit(0);
     }, 600);
@@ -1488,8 +1511,8 @@ ipcMain.on('island-action', (e, name, value) => {
     setPrimeMode(value);
   } else if (name === 'wing-info') {
     setWingInfo(value);
-  } else if (name === 'wing-count') {
-    setWingCount(value);
+  } else if (name === 'wing-source') {
+    setWingSource(value);
   } else if (name === 'prime-step') {
     const field = value && value.field === 'm' ? 'm' : 'h';
     const delta = value && Number(value.delta) < 0 ? -1 : 1;

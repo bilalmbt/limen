@@ -92,7 +92,10 @@ function beginEntrance() {
 function locale() { return (state.geometry && state.geometry.locale) || undefined; }
 function timeFormat() { return (state.geometry && state.geometry.timeFormat) || 'auto'; }
 function wingInfo() { return (state.data && state.data.wingInfo) || 'off'; }
-function wingCount() { return (state.data && state.data.wingCount) === 2 ? 2 : 1; }
+function wingSources() {
+  const s = state.data && state.data.wingSources;
+  return Array.isArray(s) && s.length ? s : ['session'];
+}
 
 /**
  * @param {number} minSweep  smallest arc a non-zero value may draw.
@@ -178,17 +181,65 @@ function reportSurface() {
 function renderAnchor() {
   const anything = state.panelOpen || state.peek || state.wings;
   const virtual = state.geometry && state.geometry.notched === false;
-  const model = VM.wingsModel(state.data.gauges);
+  const model = VM.wingsModel(state.data.gauges, wingSources());
   const wingsShowing = state.wings && Boolean(model);
   const el = $('#fakenotch');
   el.classList.toggle('off', !(virtual && anything));
-  el.classList.toggle('join-left', wingsShowing && Boolean(model && model.left));
-  el.classList.toggle('join-right', wingsShowing && Boolean(model && model.right));
+  el.classList.toggle('join-left', wingsShowing && model.left.length > 0);
+  el.classList.toggle('join-right', wingsShowing && model.right.length > 0);
+}
+
+/**
+ * One limit inside a chip: its name, its number, and — for the first one
+ * only — how long the window has left.
+ *
+ * A second limit sharing a chip is a `tail`. It keeps its tone and its
+ * escalation dot, because a week going critical must register wherever it
+ * happens to be drawn.
+ *
+ * The reset note belongs to a chip that holds ONE limit. With two, the note
+ * sat between them behind a hairline identical to the one dividing the
+ * limits themselves, so `Week 63% | 2d left | Opus 91%` read as three equal
+ * things and the note appeared to belong to neither. Dropping it there is
+ * also what keeps a three-limit band near 600 pt instead of 713.
+ */
+function wingUnit(gauge, tail, withNote) {
+  const tone = VM.tone(gauge.percent, gauge.severity);
+  const unit = document.createElement('span');
+  unit.className = `unit tone-${tone}${tail ? ' tail' : ''}`;
+
+  // Two steps of escalation, so the band is silent most of the day: a dot
+  // APPEARS past halfway — a shape change catches peripheral vision even
+  // when the text is too small to read — and the number takes colour only
+  // when the ceiling is actually close.
+  if (tone !== 'ok') {
+    const dot = document.createElement('span');
+    dot.className = `dot tone-${tone}`;
+    unit.appendChild(dot);
+  }
+
+  const tag = document.createElement('span');
+  tag.className = 'tag';
+  tag.textContent = VM.wingTag(gauge);
+  unit.appendChild(tag);
+
+  const pct = document.createElement('span');
+  pct.className = `pct tone-${tone}`;
+  pct.textContent = `${gauge.percent}%`;
+  unit.appendChild(pct);
+
+  if (withNote) {
+    const rst = document.createElement('span');
+    rst.className = 'rst';
+    rst.textContent = VM.wingReset(gauge, wingInfo(), Date.now(), locale(), timeFormat());
+    if (rst.textContent) unit.appendChild(rst);
+  }
+  return unit;
 }
 
 function renderWings() {
   const wingsEl = $('#wings');
-  const model = VM.wingsModel(state.data.gauges, wingCount());
+  const model = VM.wingsModel(state.data.gauges, wingSources());
   // Wings stay out while the panel is open: the band is part of the island,
   // and a band that shrinks when the panel morphs would break the shape.
   const show = state.wings && Boolean(model);
@@ -198,29 +249,18 @@ function renderWings() {
   wingsEl.classList.toggle('merged', show && state.panelOpen);
   if (!show) return;
 
-  const fill = (side, gauge) => {
+  // No ring here any more. At 15px it was a grey circle whose arc said
+  // nothing the adjacent number did not say better, and it cost about a
+  // fifth of the chip. Colour now appears only when it means something,
+  // which is also what makes it register when it does.
+  const fill = (side, gauges) => {
     const el = wingsEl.querySelector(`.wing.${side}`);
-    el.classList.toggle('empty', !gauge);
-    if (!gauge) return;
-    // No ring here any more. At 15px it was a grey circle whose arc said
-    // nothing the adjacent number did not say better, and it cost about a
-    // fifth of the chip. Colour now appears only when it means something,
-    // which is also what makes it register when it does.
-    const tone = VM.tone(gauge.percent, gauge.severity);
-    el.classList.toggle('hot', tone === 'hot');
-    el.classList.toggle('crit', tone === 'crit');
-    // Two steps of escalation, so the band is silent most of the day: a dot
-    // APPEARS past halfway — a shape change catches peripheral vision even
-    // when the text is too small to read — and the number takes colour only
-    // when the ceiling is actually close.
-    const dot = el.querySelector('.dot');
-    dot.className = tone === 'ok' ? 'dot off' : `dot tone-${tone}`;
-    el.querySelector('.tag').textContent = VM.wingTag(gauge);
-    const pct = el.querySelector('.pct');
-    pct.className = `pct tone-${tone}`;
-    pct.textContent = `${gauge.percent}%`;
-    el.querySelector('.rst').textContent =
-      VM.wingReset(gauge, wingInfo(), Date.now(), locale(), timeFormat());
+    el.classList.toggle('empty', !gauges.length);
+    // Rebuilt rather than reconciled: a chip holds one unit or two, and the
+    // whole thing is four spans of text that never animate.
+    el.textContent = '';
+    const alone = gauges.length === 1;
+    gauges.forEach((gauge, i) => el.appendChild(wingUnit(gauge, i > 0, alone)));
   };
   fill('left', model.left);
   fill('right', model.right);
@@ -287,7 +327,7 @@ function alignPanel(panel) {
     return;
   }
 
-  const model = VM.wingsModel(state.data.gauges, wingCount());
+  const model = VM.wingsModel(state.data.gauges, wingSources());
   if (state.wings && model) {
     // Centred on the BAND's real extent, measured — not on the notch.
     //
@@ -536,19 +576,38 @@ const WING_INFO = [
   ['ends', 'Ends', 'Also when the window resets']
 ];
 
+/**
+ * Which limits the band shows, in the order it draws them. These name the
+ * limits themselves — the old control asked for a NUMBER of chips and left
+ * the choice of what went in them to the app, which is why a model's week
+ * could take the right chip and hide the all-models week for good.
+ */
+const WING_SOURCES = [
+  ['session', 'Session', 'The rolling five-hour window'],
+  ['weekly', 'Week', 'The weekly quota across all models'],
+  // Deliberately generic: this source is "whichever model is busiest", and
+  // which one that is changes during the day. Naming it after the model an
+  // account happens to have today would read as a fixed choice.
+  ['model', 'Model', 'The busiest model’s own week']
+];
+
+/** Which gauge kind each source draws from. */
+const SOURCE_KIND = { session: 'session', weekly: 'weekly', model: 'model' };
+
+
+/** Two sides, so three limits is the most the band can hold. */
+const MAX_SOURCES = 3;
+
 function buildPrimeBar(bar) {
-  const wcount = bar.querySelector('.chips.wcount');
-  for (const [value, label, title] of [
-    [1, '1', 'One chip: the limit that will stop you first'],
-    [2, '2', 'Two chips: the session and the binding limit']
-  ]) {
+  const wsrc = bar.querySelector('.chips.wsrc');
+  for (const [value, label, title] of WING_SOURCES) {
     const b = document.createElement('button');
     b.className = 'chip';
-    b.dataset.count = String(value);
+    b.dataset.wsrc = value;
     b.textContent = label;
     b.title = title;
-    b.addEventListener('click', () => window.island.act('wing-count', value));
-    wcount.appendChild(b);
+    b.addEventListener('click', () => window.island.act('wing-source', value));
+    wsrc.appendChild(b);
   }
 
   const winfo = bar.querySelector('.chips.winfo');
@@ -596,12 +655,30 @@ function renderPrimeBar(p) {
   if (!bar.dataset.built) { buildPrimeBar(bar); bar.dataset.built = '1'; }
 
   // Only worth offering while the chips are actually in the menu bar.
-  $('#winforow').classList.toggle('off', !state.wings);
+  for (const row of bar.querySelectorAll('.prow.wingrow')) {
+    row.classList.toggle('off', !state.wings);
+  }
   for (const b of bar.querySelectorAll('.chips.winfo .chip')) {
     b.classList.toggle('on', b.dataset.winfo === wingInfo());
   }
-  for (const b of bar.querySelectorAll('.chips.wcount .chip')) {
-    b.classList.toggle('on', Number(b.dataset.count) === wingCount());
+  const sources = wingSources();
+  const full = sources.length >= MAX_SOURCES;
+  const sole = sources.length === 1;
+  const gauges = state.data.gauges || [];
+  for (const b of bar.querySelectorAll('.chips.wsrc .chip')) {
+    const source = b.dataset.wsrc;
+    const on = sources.includes(source);
+    b.classList.toggle('on', on);
+    // A limit this account does not expose is not a choice: the band would
+    // draw nothing for it. Only claimed while a reading is actually in hand —
+    // an empty gauge list is a fetch that has not landed, not an account
+    // without quotas.
+    const kind = SOURCE_KIND[source];
+    const absent = gauges.length > 0 && kind && !gauges.some((g) => g.kind === kind);
+    // Both ends of the range are shown rather than enforced silently: a
+    // fourth limit has nowhere to go, and the last one standing cannot be
+    // turned off without leaving the band empty.
+    b.disabled = on ? sole : (full || absent);
   }
 
   const mode = p.chain ? 'chain' : p.at ? 'at' : '';

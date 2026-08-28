@@ -22,7 +22,7 @@ const DEFAULTS = {
   alertAt: [80, 95],        // peek when a quota crosses these marks; [] = never
   wings: false,             // ambient chips: opt-in, the menu bar is busy land
   wingInfo: 'remaining',    // what a chip adds: 'off', 'remaining', 'ends'
-  wingCount: 1,             // 1 = only the limit that will stop you; 2 = both
+  wingSources: ['session'], // WHICH limits the chips show; see SOURCES below
   externalDisplays: 'island', // 'island' draws a virtual one, 'off' draws nothing
   displayId: 'primary',     // which notchless display hosts the virtual island
   notchWidth: null,         // points; null = derived from the display
@@ -44,7 +44,67 @@ const DEFAULTS = {
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 const KNOWN = Object.keys(DEFAULTS);
 
+/**
+ * The limits a chip can name, in the order the band draws them.
+ *
+ * Every entry is a limit you can point at. 'auto' used to sit at the end —
+ * not a limit but a rule, "whatever will stop you first" — and it read as a
+ * fourth quota sitting beside three real ones. A control that names a rule
+ * in the same breath as the things it chooses between is a control that has
+ * to be explained, so it is gone.
+ */
+const SOURCES = ['session', 'weekly', 'model'];
+
+/** Removed sources a settings file may still be asking for. */
+const LEGACY_SOURCES = ['auto'];
+
+/**
+ * The notch has two sides, so a third source has to share a chip and a fourth
+ * would have nowhere to go. Kept as a real rule rather than an accident of
+ * there being three sources today: the band's shape is what sets it, not the
+ * length of the list.
+ */
+const MAX_SOURCES = 3;
+
 function validTime(t) { return typeof t === 'string' && TIME_RE.test(t.trim()); }
+
+/**
+ * A source list the band can actually draw: known names, no repeats, in the
+ * canonical order, at most three. Ordered here rather than by click order so
+ * the chips never swap sides between one session and the next.
+ */
+function cleanSources(v) {
+  if (!Array.isArray(v)) return undefined;
+  const list = SOURCES.filter((name) => v.includes(name));
+  if (list.length) return list.slice(0, MAX_SOURCES);
+  // A file still asking only for a removed source is migrated to the default
+  // rather than reported as debris: the setting was ours to retire, not a
+  // mistake anyone made.
+  return v.some((n) => LEGACY_SOURCES.includes(n)) ? DEFAULTS.wingSources.slice() : undefined;
+}
+
+/**
+ * Turn one source on or off.
+ *
+ * Two refusals, and both exist so that a click only ever changes the thing
+ * clicked. A full band ignores a fourth rather than making room by dropping
+ * whichever source happens to sort last; and the last source standing cannot
+ * be turned off, because a band with nothing in it is not a setting anyone
+ * meant to choose. Substituting another source there was worse than
+ * refusing: it lit a control the reader never touched.
+ *
+ * The interface greys out both cases, and this agrees with it even when the
+ * interface is a hand-edited file.
+ */
+function toggleSource(list, name) {
+  const base = cleanSources(list) || DEFAULTS.wingSources.slice();
+  if (!SOURCES.includes(name)) return base;
+  if (base.includes(name)) {
+    return cleanSources(base.filter((n) => n !== name)) || base;   // never empty
+  }
+  if (base.length >= MAX_SOURCES) return base;   // no room; say nothing changed
+  return cleanSources(base.concat(name)) || base;
+}
 
 /** One value, checked on its own terms. Returns undefined to mean "use the default". */
 function clean(key, v) {
@@ -73,8 +133,8 @@ function clean(key, v) {
       return v === 'off' || v === 'island' ? v : undefined;
     case 'wingInfo':
       return ['off', 'remaining', 'ends'].includes(v) ? v : undefined;
-    case 'wingCount':
-      return v === 1 || v === 2 ? v : undefined;
+    case 'wingSources':
+      return cleanSources(v);
     case 'timeFormat':
       return ['12', '24', 'auto'].includes(v) ? v : undefined;
     case 'shortcut':
@@ -103,10 +163,20 @@ function normalize(raw) {
   const dropped = [];
 
   for (const key of Object.keys(input)) {
+    if (key === 'wingCount') continue;    // renamed; handled below, not debris
     if (!KNOWN.includes(key)) { dropped.push(key); continue; }   // debris
     const value = clean(key, input[key]);
     if (value === undefined) { dropped.push(key); continue; }    // unusable
     file[key] = value;
+  }
+
+  // wingCount asked for a NUMBER of chips; wingSources names the limits. The
+  // old setting is migrated rather than discarded — a file that asked for two
+  // chips keeps showing two, and the reader never has to notice the rename.
+  if (file.wingSources === undefined && 'wingCount' in input) {
+    if (input.wingCount === 2) file.wingSources = ['session', 'weekly'];
+    else if (input.wingCount === 1) file.wingSources = ['session'];
+    else dropped.push('wingCount (unreadable; wingSources left at its default)');
   }
 
   // Auto-open is ONE choice. Holding it as two settings let both be true at
@@ -126,4 +196,7 @@ function sanitize(raw) {
   return { config: { ...DEFAULTS, ...file }, file, dropped };
 }
 
-module.exports = { DEFAULTS, KNOWN, normalize, sanitize, clean };
+module.exports = {
+  DEFAULTS, KNOWN, SOURCES, LEGACY_SOURCES, MAX_SOURCES,
+  normalize, sanitize, clean, toggleSource
+};

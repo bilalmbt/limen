@@ -85,6 +85,63 @@ test('__proto__ in the file cannot reach Object.prototype', () => {
   assert.strictEqual(config.wings, true);
 });
 
+test('wingSources: known names only, canonical order, at most three', () => {
+  assert.deepStrictEqual(C.sanitize({ wingSources: ['weekly', 'session'] }).config.wingSources,
+    ['session', 'weekly'], 'ordered here, so the chips never swap sides later');
+  assert.deepStrictEqual(C.sanitize({ wingSources: ['session', 'session'] }).config.wingSources,
+    ['session'], 'the same limit twice is one chip, not two');
+  assert.deepStrictEqual(C.sanitize({ wingSources: ['nonsense'] }).config.wingSources,
+    C.DEFAULTS.wingSources, 'an unreadable list falls back to the default, not an empty band');
+  assert.deepStrictEqual(C.sanitize({ wingSources: 'weekly' }).config.wingSources,
+    C.DEFAULTS.wingSources);
+});
+
+test('the retired "auto" source is migrated, not reported as debris', () => {
+  const only = C.sanitize({ wingSources: ['auto'] });
+  assert.deepStrictEqual(only.config.wingSources, C.DEFAULTS.wingSources,
+    'a band that asked only for auto keeps a band');
+  assert.deepStrictEqual(only.dropped, [], 'retiring a setting is not the reader’s mistake');
+
+  assert.deepStrictEqual(C.sanitize({ wingSources: ['session', 'auto'] }).config.wingSources,
+    ['session'], 'alongside a real limit, auto simply falls away');
+});
+
+test('the old wingCount is migrated, not treated as debris', () => {
+  const two = C.sanitize({ wingCount: 2 });
+  assert.deepStrictEqual(two.config.wingSources, ['session', 'weekly'],
+    'a file that asked for two chips keeps showing two');
+  assert.deepStrictEqual(two.dropped, [], 'a rename is not something to report');
+  assert.strictEqual('wingCount' in two.file, false, 'and the old key does not survive');
+
+  assert.deepStrictEqual(C.sanitize({ wingCount: 1 }).config.wingSources, ['session']);
+  // An explicit new setting wins over the old one, whichever order they sit in.
+  assert.deepStrictEqual(
+    C.sanitize({ wingCount: 2, wingSources: ['weekly'] }).config.wingSources, ['weekly']);
+  assert.ok(C.sanitize({ wingCount: 7 }).dropped.some((d) => d.startsWith('wingCount')),
+    'an unreadable count is still reported');
+});
+
+test('toggling a source never empties the band', () => {
+  assert.deepStrictEqual(C.toggleSource(['session'], 'weekly'), ['session', 'weekly']);
+  assert.deepStrictEqual(C.toggleSource(['session', 'weekly'], 'weekly'), ['session']);
+  assert.deepStrictEqual(C.toggleSource(['session'], 'nonsense'), ['session']);
+  assert.deepStrictEqual(C.toggleSource(null, 'weekly'), ['session', 'weekly'],
+    'an unreadable list is the default, and the click lands on top of it');
+  assert.deepStrictEqual(C.toggleSource(['model', 'session'], 'weekly'),
+    ['session', 'weekly', 'model'], 'order is the band’s, not the click’s');
+});
+
+test('a click only ever changes the source it lands on', () => {
+  // Turning off the last one used to substitute another source, which lit a
+  // control the reader never touched. It is refused instead, and greyed.
+  assert.deepStrictEqual(C.toggleSource(['session'], 'session'), ['session'],
+    'the last source standing cannot be turned off');
+  assert.deepStrictEqual(C.toggleSource(['model'], 'model'), ['model']);
+  const full = ['session', 'weekly', 'model'];
+  assert.deepStrictEqual(C.toggleSource(full, 'weekly'), ['session', 'model'],
+    'a full band can still be emptied out one at a time');
+});
+
 test('a clean file is reported as needing no change', () => {
   const { file, dropped } = C.sanitize({ wings: true, primeAt: ['08:00'] });
   assert.deepStrictEqual(dropped, [], 'nothing to clean means nothing to rewrite');

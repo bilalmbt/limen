@@ -193,27 +193,59 @@
     return `${Math.round(h / 24)}d left`;
   }
 
-  /**
-   * Which two gauges the wings show: left is always the 5-hour session (the
-   * one that cuts you off mid-task), right is the binding limit — the one
-   * flagged active, or failing that the fullest of the rest.
-   */
-  function wingsModel(gauges, count = 2) {
-    if (!gauges || !gauges.length) return null;
-    const session = gauges.find((g) => g.kind === 'session') || gauges[0];
-    const rest = gauges.filter((g) => g !== session);
-    const binding = rest.find((g) => g.active) ||
-      rest.slice().sort((a, b) => b.percent - a.percent)[0] || null;
+  /** The limit that will stop you first: flagged active, else the fullest. */
+  function binding(pool) {
+    return pool.slice().sort((a, b) =>
+      (b.active === true) - (a.active === true) || b.percent - a.percent)[0] || null;
+  }
 
-    if (count === 1) {
-      // One chip shows the limit that will actually stop you: the one the
-      // API flags as active, or failing that the fullest of the lot. Placed
-      // on the right, where the menu bar keeps its other indicators.
-      const one = [session, binding].filter(Boolean).sort((a, b) =>
-        (b.active === true) - (a.active === true) || b.percent - a.percent)[0];
-      return { left: null, right: one };
+  /**
+   * What the band shows, from the limits the reader asked for by name.
+   *
+   * The setting used to be a COUNT, which said how many chips would appear
+   * and nothing about what was in them — so on an account where a model's
+   * week is the active limit, the all-models week could never be shown at
+   * all. Sources say which limits; the number of chips is what follows.
+   *
+   *   'session'  the rolling five-hour window
+   *   'weekly'   the quota across all models
+   *   'model'    the busiest model's own week
+   *
+   * The notch has two sides, so a third source rides in the right chip
+   * beside the second: the first source takes the left, the rest share the
+   * right. One source alone sits on the right, where the menu bar keeps its
+   * other indicators.
+   *
+   * @param {string[]} sources  in draw order; empty falls back to the binding limit
+   * @returns {{left: object[], right: object[]}|null}
+   */
+  function wingsModel(gauges, sources) {
+    if (!gauges || !gauges.length) return null;
+    const list = Array.isArray(sources) ? sources : [];
+
+    const picked = [];
+    const taken = new Set();
+    const take = (g) => {
+      if (!g || taken.has(g.id)) return;
+      taken.add(g.id);
+      picked.push(g);
+    };
+    for (const name of list) {
+      if (name === 'session') take(gauges.find((g) => g.kind === 'session'));
+      else if (name === 'weekly') take(gauges.find((g) => g.kind === 'weekly'));
+      else if (name === 'model') take(binding(gauges.filter((g) => g.kind === 'model')));
     }
-    return { left: session, right: binding };
+
+    // Every named limit can be absent: accounts differ, and the API only
+    // reports the quotas it actually enforces. Rather than an empty band —
+    // which reads as a bug — fall back to the one that will stop you first.
+    // This is also where a settings file still naming the retired 'auto'
+    // source lands, and it lands on exactly what 'auto' used to mean.
+    if (!picked.length) take(binding(gauges));
+    if (!picked.length) return null;
+
+    if (picked.length === 1) return { left: [], right: picked };
+    return { left: picked.slice(0, 1), right: picked.slice(1) };
   }
 
   return {

@@ -10,9 +10,12 @@
   <div id="stage">
     <div id="fakenotch" class="off" aria-hidden="true"></div>
 
+    <!-- Each chip carries one unit per limit, built in the renderer: a chip
+         holds one number most of the time and two when three limits are
+         asked for, and a fixed set of spans cannot say both. -->
     <div id="wings" class="off">
-      <div class="wing left"><span class="dot"></span><span class="tag"></span><span class="pct"></span><span class="rst"></span></div>
-      <div class="wing right"><span class="dot"></span><span class="tag"></span><span class="pct"></span><span class="rst"></span></div>
+      <div class="wing left"></div>
+      <div class="wing right"></div>
     </div>
 
     <div id="peek" class="off">
@@ -35,9 +38,14 @@
       <div id="ceiling" class="off"></div>
       <div id="prime" class="off"></div>
       <div id="primebar" class="off">
-        <div class="prow" id="winforow">
-          <span class="lbl">Chips</span>
-          <span class="chips wcount"></span>
+        <!-- Two rows, not one: which limits appear and what each one adds are
+             different questions, and a single "Chips" label answered neither. -->
+        <div class="prow wingrow" id="wsrcrow">
+          <span class="lbl">Show</span>
+          <span class="chips wsrc"></span>
+        </div>
+        <div class="prow wingrow" id="winforow">
+          <span class="lbl">Detail</span>
           <span class="chips winfo"></span>
         </div>
         <div class="prow">

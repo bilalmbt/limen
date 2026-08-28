@@ -83,54 +83,73 @@ test('the status strip names the reason and the retry time', () => {
     'the amber dot and the header already say the numbers are old');
 });
 
-test('one chip shows the limit that will actually stop you', () => {
-  const gauges = [
-    { id: 'session', kind: 'session', percent: 12 },
-    { id: 'weekly', kind: 'weekly', percent: 40 },
-    { id: 'model-opus', kind: 'model', model: 'Opus', percent: 91, active: true }
-  ];
-  const one = VM.wingsModel(gauges, 1);
-  assert.strictEqual(one.left, null, 'a single chip sits on the indicator side');
-  assert.strictEqual(one.right.id, 'model-opus', 'the flagged limit wins');
+const BAND = [
+  { id: 'session', kind: 'session', percent: 12 },
+  { id: 'weekly', kind: 'weekly', percent: 40 },
+  { id: 'model-opus', kind: 'model', model: 'Opus', percent: 91, active: true },
+  { id: 'model-fable', kind: 'model', model: 'Fable', percent: 30 }
+];
+const ids = (units) => units.map((g) => g.id);
 
-  // With nothing flagged, the fullest of session-vs-binding wins.
+test('one source is one chip, on the indicator side', () => {
+  const one = VM.wingsModel(BAND, ['weekly']);
+  assert.deepStrictEqual(ids(one.left), []);
+  assert.deepStrictEqual(ids(one.right), ['weekly']);
+});
+
+test('the model source takes the busiest model', () => {
+  assert.deepStrictEqual(ids(VM.wingsModel(BAND, ['model']).right), ['model-opus'],
+    'the flagged limit wins');
   const noFlag = VM.wingsModel([
-    { id: 'session', kind: 'session', percent: 80 },
-    { id: 'weekly', kind: 'weekly', percent: 20 }
-  ], 1);
-  assert.strictEqual(noFlag.right.id, 'session');
-});
-
-test('one chip still works when the account exposes a single quota', () => {
-  const one = VM.wingsModel([{ id: 'session', kind: 'session', percent: 5 }], 1);
-  assert.strictEqual(one.right.id, 'session');
-  assert.strictEqual(one.left, null);
-});
-
-test('wings: session on the left, the binding limit on the right', () => {
-  const gauges = [
-    { id: 'session', kind: 'session', percent: 73 },
-    { id: 'weekly', kind: 'weekly', percent: 21 },
-    { id: 'model-fable', kind: 'model', model: 'Fable', percent: 52, active: true }
-  ];
-  const w = VM.wingsModel(gauges);
-  assert.strictEqual(w.left.id, 'session');
-  assert.strictEqual(w.right.id, 'model-fable', 'the active limit must win the right wing');
-});
-
-test('wings: with no active flag the fullest remaining gauge wins', () => {
-  const w = VM.wingsModel([
     { id: 'session', kind: 'session', percent: 10 },
-    { id: 'weekly', kind: 'weekly', percent: 21 },
-    { id: 'model-opus', kind: 'model', model: 'Opus', percent: 94 }
-  ]);
-  assert.strictEqual(w.right.id, 'model-opus');
+    { id: 'model-opus', kind: 'model', model: 'Opus', percent: 30 },
+    { id: 'model-fable', kind: 'model', model: 'Fable', percent: 62 }
+  ], ['model']);
+  assert.deepStrictEqual(ids(noFlag.right), ['model-fable'], 'with nothing flagged, the fullest');
 });
 
-test('wings: a single gauge fills the left wing and leaves the right empty', () => {
-  const w = VM.wingsModel([{ id: 'session', kind: 'session', percent: 40 }]);
-  assert.strictEqual(w.left.id, 'session');
-  assert.strictEqual(w.right, null);
+test('with no sources at all the band still says something true', () => {
+  // Where a settings file naming the retired 'auto' source lands, too — and
+  // it lands on exactly what auto used to mean.
+  assert.deepStrictEqual(ids(VM.wingsModel(BAND).right), ['model-opus']);
+  assert.deepStrictEqual(ids(VM.wingsModel(BAND, []).right), ['model-opus']);
+  assert.deepStrictEqual(ids(VM.wingsModel(BAND, ['auto']).right), ['model-opus']);
+});
+
+test('the week can be asked for by name, even while a model is active', () => {
+  // The whole point of the change: with a count, the active model took the
+  // right chip and the all-models week could not be shown at all.
+  const w = VM.wingsModel(BAND, ['session', 'weekly']);
+  assert.deepStrictEqual(ids(w.left), ['session']);
+  assert.deepStrictEqual(ids(w.right), ['weekly']);
+});
+
+test('a third limit rides in the right chip', () => {
+  const w = VM.wingsModel(BAND, ['session', 'weekly', 'model']);
+  assert.deepStrictEqual(ids(w.left), ['session']);
+  assert.deepStrictEqual(ids(w.right), ['weekly', 'model-opus'],
+    'the busiest model, sharing the chip with the week');
+});
+
+test('a named limit the account does not expose is dropped, not faked', () => {
+  const noWeek = [
+    { id: 'session', kind: 'session', percent: 40 },
+    { id: 'model-opus', kind: 'model', model: 'Opus', percent: 70 }
+  ];
+  const w = VM.wingsModel(noWeek, ['session', 'weekly']);
+  assert.deepStrictEqual(ids(w.left), [], 'one limit left: it sits on the right');
+  assert.deepStrictEqual(ids(w.right), ['session']);
+
+  // Ask only for limits this account has never heard of and the band still
+  // says something true rather than going blank.
+  const none = VM.wingsModel(noWeek, ['weekly']);
+  assert.deepStrictEqual(ids(none.right), ['model-opus']);
+});
+
+test('wings: a single gauge fills one chip and leaves the other empty', () => {
+  const w = VM.wingsModel([{ id: 'session', kind: 'session', percent: 40 }], ['session', 'weekly']);
+  assert.deepStrictEqual(ids(w.left), []);
+  assert.deepStrictEqual(ids(w.right), ['session']);
 });
 
 test('wings: no gauges, no wings, no crash', () => {

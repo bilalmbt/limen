@@ -15,7 +15,7 @@ around the notch instead of the screen edge.
 | State | What you see | When |
 |---|---|---|
 | **Dormant** | Nothing. The notch is just the notch. | 95% of the day |
-| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number: `5h ◔ 73%` for the rolling session on the left, and on the right the binding limit (`7d` for the all-models week, or the model by name: `Fable ◔ 52%`). | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
+| **Wings** | Two black chips flanking the notch at its full height — flush with the top edge, the notch's own rounded corners, so the trio reads as one split surface. Each names its number in words: `Session 73%  51m left`, `Week 21%`, `Fable 52%`. You choose which limits appear — **Show** in the panel: `Session`, `Week`, `Model` — whichever model is busiest — and `Auto` — not a limit but a rule: whatever will stop you first that is not already shown. Three is the most the band holds, and the third rides beside the second in the right-hand chip, which then drops its reset note. | Opt-in (`wings: true`, tray, or `⌘⇧I`) |
 | **Peek** | One line that drops below the notch for 4 seconds, then retracts. | A quota crosses an alert mark (80, 95) |
 | **Expanded** | Every gauge, led by its number: session, weekly, per-model, with reset times, the **active limit** badge, and — when the pace would exhaust a quota before its window resets — `full in ~44 min`. | Park on the notch, the tray, or `⌘⇧U` |
 
@@ -33,7 +33,7 @@ Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
 
 ```bash
 npm install
-npm test        # 78 tests, no Electron needed
+npm test        # 161 tests, no Electron needed
 npm start       # the island, on your notch (or top-center of a flat display)
 ```
 
@@ -41,7 +41,7 @@ Useful commands:
 
 ```bash
 npm run usage   # raw quotas as JSON, no interface
-npm run demo    # stays open with fixture data (ISLAND_SCENE=expanded|peek|wings|full|stale|empty)
+npm run demo    # stays open with fixture data (ISLAND_SCENE=expanded|peek|wings|wings-week|wings-three|full|stale|empty)
 npm run spike   # placement proof: can a window sit over the menu bar strip? (exit 0 = yes)
 ISLAND_CAPTURE=/tmp/island.png ISLAND_SCENE=stale npm start   # screenshot a state, then exit
 
@@ -209,6 +209,8 @@ top-center, that appears only while the island has something to say
   "refreshSeconds": 120,
   "alertAt": [80, 95],
   "wings": false,
+  "wingSources": ["auto"],
+  "wingInfo": "remaining",
   "externalDisplays": "island",
   "displayId": "primary",
   "notchWidth": null,
@@ -220,6 +222,16 @@ top-center, that appears only while the island has something to say
 }
 ```
 
+`wingSources` names the limits the chips show, in the order the band draws
+them: `session`, `weekly`, and `model` (whichever model is busiest). At most
+three, since the notch has two sides; turning off the last one standing is
+refused rather than leaving an empty band, and a limit the account does not
+expose is offered as a spent chip rather than a click that would draw
+nothing. `wingInfo` is what each chip adds after its number: `off`,
+`remaining` (`51m left`) or `ends` (`resets 22:50`) — a chip holding two
+limits drops it either way. A file naming the retired `auto` source, or the
+older `wingCount`, is migrated on first read and rewritten.
+
 `alertAt: []` silences peeks. `osNotifications: true` raises a system
 notification alongside the peek (same ledger, so still once).
 `contentProtection` keeps the island out of screenshots, recordings and
@@ -229,28 +241,31 @@ applies changes without a restart.
 
 ## What is verified
 
-`npm test` runs 78 tests across the places where a mistake shows up
+`npm test` runs 161 tests across the places where a mistake shows up
 immediately:
 
-- **Notch geometry, 20 tests** — the aspect rule against nine real display
+- **Notch geometry, 24 tests** — the aspect rule against nine real display
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,
   16:9 iMac shape), auto-hidden menu bars, negative display coordinates,
   clamshell fallback, and the keep-alive ⊇ hot-zone invariant.
-- **The state machine, 23 tests** — stillness-gated dwell, grace, re-entry,
+- **The state machine, 28 tests** — stillness-gated dwell, grace, re-entry,
   the busy hold, peek timing, promotion, alert-never-demotes, mouse-down
   collapse, wings orthogonality, input immutability.
 - **Burn rate, 12 tests** — mostly about staying quiet: two samples are a
   coincidence, quantisation noise is not a trend, and a rolling-window reset
   voids a rate rather than reporting a negative one.
-- **Wording and tones, 17 tests** — the luminance-ordered ramp, server-graded
+- **Wording and tones, 25 tests** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
-- **The data layer, 37 tests** — normalization (a missing quota never becomes
+- **The data layer, 39 tests** — normalization (a missing quota never becomes
   a displayed zero), the one gate every fetch passes, the alert ledger,
   persisted state.
+- **Settings and priming, 33 tests** — a hand-edited file that cannot break
+  the app, the wingCount migration, the band's source rules (canonical order,
+  a cap of three, never empty), and the auto-open schedule.
 
 ## What is verified, and how
 
-`npm test` runs **109 tests** over the pure modules — notch geometry, the
+`npm test` runs **161 tests** over the pure modules — notch geometry, the
 state machine, burn rate, wording and tones, quota normalization, backoff,
 alerts, persisted state. Three runtime checks complement them, because unit
 tests cannot see pixels:
