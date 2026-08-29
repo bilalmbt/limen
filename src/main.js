@@ -1024,6 +1024,31 @@ function sendSignIn(status, detail) {
   if (ready && win && !win.isDestroyed()) win.webContents.send('signin', { status, detail });
 }
 
+/**
+ * Hand the login to a human, in a Terminal window.
+ *
+ * `claude auth login`, not bare `claude`: a full session would start every
+ * MCP server the user has configured, and Terminal would then ask, in its
+ * own name, for their Downloads and their music library. A login needs none
+ * of that.
+ *
+ * The path is passed as an argument rather than interpolated into the
+ * script — building AppleScript by concatenation breaks on a space and
+ * quotes badly on anything worse.
+ */
+function openLoginTerminal(bin) {
+  trace('sign-in: opening Terminal for an interactive login');
+  execFile('/usr/bin/osascript', [
+    '-e', 'on run argv',
+    '-e', 'tell application "Terminal" to activate',
+    '-e', 'tell application "Terminal" to do script ((quoted form of item 1 of argv) & " auth login")',
+    '-e', 'end run',
+    bin || 'claude'
+  ], { timeout: 8000 }, (err) => {
+    if (err) trace(`sign-in: could not open Terminal: ${err.message}`);
+  });
+}
+
 async function signInViaClaudeCode() {
   if (signingIn) return;
   signingIn = true;
@@ -1038,12 +1063,22 @@ async function signInViaClaudeCode() {
   updateTray();
   try {
     const bin = await resolveClaude();
-    // Nothing to refresh means nothing to nudge: with no credentials at all,
-    // `claude -p ok` cannot log anyone in — that needs a browser — so trying
-    // buys twenty seconds of waiting and the same answer. Straight to the
-    // step that works, which the button has already named.
-    // Ask Claude Code before spending twenty seconds guessing. Not logged in
-    // at all means the nudge cannot work, whatever our own read said.
+
+    // The button already reads "Open Terminal to finish", which means a nudge
+    // was tried and did not work. Running it again on the way to Terminal is
+    // ten seconds spent re-learning what the label is already reporting — and
+    // ten seconds is exactly how long it felt.
+    if (pendingTerminal) {
+      trace('sign-in: Terminal already offered, opening it');
+      pendingTerminal = false;
+      openLoginTerminal(bin);
+      return;
+    }
+
+    // Ask Claude Code before spending twenty seconds guessing: with no
+    // credentials at all, or no account behind them, `claude -p ok` cannot
+    // log anyone in — that needs a browser — so trying buys twenty seconds
+    // of waiting and the same answer.
     const loggedIn = bin ? await claudeLoggedIn(bin) : null;
     if (loggedIn !== null) trace(`sign-in: claude auth status says loggedIn=${loggedIn}`);
     const nothingToRefresh = lastData.reason === 'no-credentials' || loggedIn === false;
@@ -1072,26 +1107,8 @@ async function signInViaClaudeCode() {
     sendSignIn('needs-terminal');
     // The second click existed so Terminal never opened unasked. When the
     // button itself reads "Open Terminal to sign in", it has been asked.
-    if (!nothingToRefresh && !pendingTerminal) { pendingTerminal = true; return; }
-    pendingTerminal = false;
-    // A real login needs a human and a browser. The path is passed as an
-    // argument rather than interpolated into the script: building AppleScript
-    // by concatenation breaks on a space and quotes badly on anything worse.
-    trace('sign-in: opening Terminal for an interactive login');
-    // `claude auth login`, not bare `claude`. Opening a full session starts
-    // the user's whole Claude Code environment — every MCP server — and
-    // Terminal then asks, in its own name, for their Downloads, their music
-    // library and whatever else those servers reach for. A login flow needs
-    // none of it.
-    execFile('/usr/bin/osascript', [
-      '-e', 'on run argv',
-      '-e', 'tell application "Terminal" to activate',
-      '-e', 'tell application "Terminal" to do script ((quoted form of item 1 of argv) & " auth login")',
-      '-e', 'end run',
-      bin || 'claude'
-    ], { timeout: 8000 }, (err) => {
-      if (err) trace(`sign-in: could not open Terminal: ${err.message}`);
-    });
+    if (!nothingToRefresh) { pendingTerminal = true; return; }
+    openLoginTerminal(bin);
   } finally {
     signingIn = false;
     machine = { ...machine, busy: false };
