@@ -3,12 +3,13 @@
    same one thirty times an hour, which is how people learn to ignore them. */
 
 const assert = require('assert');
-const { due, plan } = require('../src/alerts');
+const { due, plan, FORGET_AFTER_POLLS } = require('../src/alerts');
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
 const WINDOW = '2026-09-02T09:59:59Z';
 const gauge = (percent, resetsAt = WINDOW) => ({ id: 'session', kind: 'session', percent, resetsAt });
+const weekly = () => ({ id: 'weekly', kind: 'weekly', percent: 5, resetsAt: WINDOW });
 
 test('crossing a threshold raises one alert', () => {
   const { raise } = due([gauge(83)], [80, 95], {});
@@ -44,9 +45,28 @@ test('no thresholds configured means no alerts', () => {
 });
 
 test('the ledger forgets quotas the account no longer exposes', () => {
-  const { ledger } = due([gauge(83)], [80], {});
-  const after = due([{ id: 'weekly', kind: 'weekly', percent: 5, resetsAt: WINDOW }], [80], ledger);
-  assert.deepStrictEqual(Object.keys(after.ledger), [], 'the ledger would grow forever');
+  // ...but not on one poll's word: removal is only believed after
+  // FORGET_AFTER_POLLS consecutive polls without the gauge.
+  let { ledger } = due([gauge(83)], [80], {});
+  for (let poll = 1; poll < FORGET_AFTER_POLLS; poll++) {
+    ledger = due([weekly()], [80], ledger).ledger;
+    assert.ok('session' in ledger, `absent poll ${poll} is not yet proof of removal`);
+  }
+  ledger = due([weekly()], [80], ledger).ledger;
+  assert.deepStrictEqual(Object.keys(ledger), [], 'the ledger would grow forever');
+});
+
+test('the absence count survives a restart', () => {
+  // The ledger is persisted (state.json) and read back on launch. The count
+  // rides the entry through JSON, so a restart mid-absence neither starts
+  // the count over nor forgets early.
+  let { ledger } = due([gauge(83)], [80], {});
+  ledger = due([weekly()], [80], ledger).ledger;         // one absent poll...
+  ledger = JSON.parse(JSON.stringify(ledger));           // ...then a restart
+  for (let poll = 1; poll < FORGET_AFTER_POLLS; poll++) {
+    ledger = due([weekly()], [80], ledger).ledger;
+  }
+  assert.ok(!('session' in ledger), 'the count did not survive the round trip');
 });
 
 test('a jump straight past both thresholds reports the higher one', () => {
@@ -124,12 +144,37 @@ test('a threshold and a pace warning in one poll come out in that order', () => 
   assert.strictEqual(r.raise[1].minutes, 44, 'the pace carries its own estimate');
 });
 
+test('a one-poll blip does not re-arm a spoken alert', () => {
+  // One 200 can arrive with a single null utilization; usage.js reads that
+  // as "no such limit" and the gauge is simply not in the list for a poll.
+  // Forgetting it on that blip meant the spoken 80 — and the spoken pace
+  // warning — spoke AGAIN the moment the gauge returned.
+  const spoke = plan([gauge(83)], opts({}));
+  assert.deepStrictEqual(spoke.raise.map((x) => x.level), [80, 'pace']);
+
+  const blip = plan([], opts({ ledger: spoke.ledger }));
+  const back = plan([gauge(84)], opts({ ledger: blip.ledger }));
+  assert.deepStrictEqual(back.raise, [], 'the blip re-armed what had been said');
+
+  // And absence only counts when consecutive: a gauge that keeps coming
+  // back is never forgotten, however many blips it rides through.
+  let ledger = back.ledger;
+  for (let round = 1; round <= FORGET_AFTER_POLLS + 1; round++) {
+    ledger = plan([], opts({ ledger })).ledger;
+    const returned = plan([gauge(84)], opts({ ledger }));
+    ledger = returned.ledger;
+    assert.deepStrictEqual(returned.raise, [], `blip ${round} re-armed a spoken alert`);
+  }
+});
+
 test('the ledger keeps a pace entry for a live gauge, drops it for a dead one', () => {
   const alive = plan([gauge(60)], opts({}));
   assert.ok('pace-session' in alive.ledger);
-  const gone = plan([{ id: 'weekly', kind: 'weekly', percent: 5, resetsAt: WINDOW }],
-    opts({ ledger: alive.ledger }));
-  assert.deepStrictEqual(Object.keys(gone.ledger), [],
+  let ledger = alive.ledger;
+  for (let poll = 0; poll < FORGET_AFTER_POLLS; poll++) {
+    ledger = plan([weekly()], opts({ ledger })).ledger;
+  }
+  assert.deepStrictEqual(Object.keys(ledger), [],
     'a quota the account no longer exposes takes its pace entry with it');
 });
 
