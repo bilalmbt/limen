@@ -582,11 +582,25 @@ async function refresh(cause = 'schedule', force = false) {
     if (!credProblem()) pendingTerminal = false;
 
     if (!data.ok && VM.isCredentialProblem(data.reason)) {
-      const bin = await resolveClaude();
-      lastData.accountLive = bin ? await claudeLoggedIn(bin) : null;
-      trace(`credentials: ${data.reason}, claude account live=${lastData.accountLive}`);
+      // Cheap, but still a subprocess, and this loop runs every two minutes
+      // for as long as the problem lasts. The answer only changes when
+      // someone signs in or out, so ask on the first poll of a given
+      // failure and then at a walking pace.
+      const fresh = data.reason !== accountProbe.reason ||
+        Date.now() - accountProbe.at > ACCOUNT_PROBE_MS;
+      if (fresh) {
+        const bin = await resolveClaude();
+        accountProbe = {
+          reason: data.reason,
+          at: Date.now(),
+          live: bin ? await claudeLoggedIn(bin) : null
+        };
+        trace(`credentials: ${data.reason}, claude account live=${accountProbe.live}`);
+      }
+      lastData.accountLive = accountProbe.live;
     } else {
       lastData.accountLive = undefined;
+      accountProbe = { reason: null, at: 0, live: undefined };
     }
 
     logState(data);
@@ -780,6 +794,11 @@ function claudeLoggedIn(bin) {
     });
   });
 }
+
+// Asking Claude Code whether the account is live, at a pace that suits an
+// answer which changes when a person signs in or out — not every poll.
+const ACCOUNT_PROBE_MS = 10 * 60 * 1000;
+let accountProbe = { reason: null, at: 0, live: undefined };
 
 let signingIn = false;
 let pendingTerminal = false;   // the first click nudges; a second opens Terminal
@@ -1165,10 +1184,13 @@ async function signInViaClaudeCode() {
 function updateTray() {
   if (!tray || tray.isDestroyed()) return;
   const session = (lastData.gauges || []).find((g) => g.id === 'session');
-  const label = session ? `${session.percent}%`
-    : signingIn ? 'signing in…'
-    : credProblem() ? 'sign in'
-    : '–';
+  // The old expression tested the gauge FIRST, and a credential failure
+  // keeps the last good gauges — so the menu bar went on showing a
+  // percentage while the app could not read the account at all, including
+  // one restored from up to a day earlier.
+  const label = VM.trayTitle(session, {
+    signingIn, reason: lastData.reason, stale: lastData.stale === true
+  });
   // The tooltip is the accessible surface: the window is click-through and
   // unfocusable, so for a VoiceOver user this is the only place the numbers
   // exist at all. It used to be the constant string "Limen".
@@ -1180,6 +1202,34 @@ function updateTray() {
 }
 
 /** Rebuilding a context menu while it is open dismisses it under the cursor. */
+/**
+ * How long until a forced refresh would be allowed, as words, or '' if it
+ * would go through right now. The gate lives in schedule.js; asking it the
+ * question here is what lets the menu stop offering what it cannot do.
+ */
+/**
+ * The login item's state, cached.
+ *
+ * On a checkout install this forks `launchctl` synchronously, and it was
+ * called once to build the menu signature — so every refresh, whether or not
+ * the menu changed, blocked the process that samples the cursor every 40 ms.
+ * The answer only changes when this app changes it, or when someone edits
+ * launchd from outside, which the next forced rebuild picks up.
+ */
+let loginItemCache;
+function loginItemEnabled() {
+  if (loginItemCache === undefined) loginItemCache = autostart.isEnabled();
+  return loginItemCache;
+}
+
+function refreshHeldFor() {
+  if (inFlight) return 'a moment';
+  const now = Date.now();
+  if (mayFetch({ now, nextAllowedAt, serverImposed, lastFetchAt, force: true })) return '';
+  const mins = Math.ceil(Math.max(nextAllowedAt - now, FORCE_FLOOR_MS - (now - lastFetchAt)) / 60000);
+  return mins > 1 ? `${mins} min` : 'a moment';
+}
+
 let menuSignature = null;
 function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
@@ -1187,7 +1237,8 @@ function buildMenu(force = false) {
   const signature = [
     credProblem(), signingIn, pendingTerminal, machine.wings, paused, primeNote(), config.contentProtection,
     priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
-    (lastData.gauges || []).length > 0, autostart.isEnabled()
+    (lastData.gauges || []).length > 0, lastData.ok === true, loginItemEnabled(),
+    refreshHeldFor(), Boolean(islandDisplay())
   ].join('|');
   if (!force && signature === menuSignature) return;
 
@@ -1207,14 +1258,31 @@ function buildMenu(force = false) {
     ] : []),
     // The panel was hover-only and no menu item opened it, so a user who
     // never guessed the gesture could not reach the data at all.
-    { label: 'Show usage', click: () => showPanel() },
-    { label: 'Refresh now', click: () => refresh('tray', true) },
+    {
+      label: 'Show usage',
+      // Nothing to show it on: in clamshell with externalDisplays 'off' the
+      // island has no display, and opening the panel anyway drew it on the
+      // screen the setting excluded — where nothing could then dismiss it,
+      // because poll() returns before the state machine ever ticks.
+      enabled: Boolean(islandDisplay()),
+      accelerator: liveShortcuts['show usage'] || undefined,
+      click: () => showPanel()
+    },
+    {
+      // Enabled only when a fetch would actually happen. Under a 429 this
+      // was a menu item that did nothing, silently, for up to fifteen
+      // minutes — the click was gated inside refresh() where nobody could
+      // see it.
+      label: refreshHeldFor() ? `Refresh in ${refreshHeldFor()}` : 'Refresh now',
+      enabled: !refreshHeldFor(),
+      click: () => refresh('tray', true)
+    },
     { type: 'separator' },
     {
       label: 'Show chips in the menu bar',
       type: 'checkbox',
       checked: machine.wings,
-      accelerator: config.shortcut || undefined,
+      accelerator: liveShortcuts['menu-bar chips'] || undefined,
       click: () => toggleWings()
     },
     {
@@ -1226,7 +1294,12 @@ function buildMenu(force = false) {
           label: priming ? 'Opening a window…'
             : sessionOpen() ? `Open until ${sessionEndsAt()}`
             : 'Open one now',
-          enabled: !priming && !sessionOpen() && !credProblem(),
+          // `lastData.ok` matters: before the first successful read, and on
+          // any failure, sessionOpen() is false because there are no gauges
+          // — not because no window is running. The panel's own gate has
+          // always required ok; this one did not, and spent a real message
+          // to find out.
+          enabled: !priming && lastData.ok === true && !sessionOpen() && !credProblem(),
           click: () => primeNow()
         },
         { type: 'separator' },
@@ -1268,9 +1341,9 @@ function buildMenu(force = false) {
     {
       label: 'Start at login',
       type: 'checkbox',
-      checked: autostart.isEnabled() === true,
-      enabled: autostart.isEnabled() !== null,
-      click: (item) => { autostart.setEnabled(item.checked); buildMenu(true); }
+      checked: loginItemEnabled() === true,
+      enabled: loginItemEnabled() !== null,
+      click: (item) => { autostart.setEnabled(item.checked); loginItemCache = undefined; buildMenu(true); }
     },
     {
       // On by default because the island sits at the top of the screen
@@ -1331,16 +1404,20 @@ function showPanel() {
  * VoiceOver user, or anyone who cannot hold a cursor steady had no route to
  * their own quota at all.
  */
+// Which accelerators the OS actually gave us. `register()` returns false
+// for a binding something else already holds — the menu was advertising the
+// keystroke anyway, next to an item that keystroke could never reach.
+let liveShortcuts = {};
 function registerShortcuts() {
+  liveShortcuts = {};
   const bind = (accel, fn, what) => {
     if (!accel || !accel.trim()) return;
     try {
       // register() RETURNS false for a taken binding rather than throwing,
       // so a bare catch would report nothing and the shortcut would simply
       // not exist, with no diagnosis anywhere.
-      if (!globalShortcut.register(accel, fn)) {
-        trace(`shortcut "${accel}" (${what}) is already taken; use the tray menu`);
-      }
+      if (globalShortcut.register(accel, fn)) liveShortcuts[what] = accel;
+      else trace(`shortcut "${accel}" (${what}) is already taken; use the tray menu`);
     } catch (err) {
       trace(`shortcut "${accel}" (${what}) rejected: ${err.message}`);
     }
@@ -1363,6 +1440,7 @@ function pauseAlerts(minutes) {
  * the edit.
  */
 function reloadConfig() {
+  loginItemCache = undefined;   // the file may name a different install
   const before = {
     shortcut: config.shortcut,
     showShortcut: config.showShortcut,

@@ -312,6 +312,23 @@ test('a failed session prime does not relabel the sign-in button', () => {
     'Sign in with Claude Code');
 });
 
+test('the menu bar does not show a number the app cannot vouch for', () => {
+  const g = { percent: 73 };
+  assert.strictEqual(VM.trayTitle(g, {}), '73%');
+  assert.strictEqual(VM.trayTitle(g, { stale: true }), '73%*', 'marked, not hidden');
+  // A credential failure keeps the last good gauges, so testing the gauge
+  // first showed a live-looking figure for an account it could not read —
+  // after an overnight restore, last night's.
+  assert.strictEqual(VM.trayTitle(g, { reason: 'token-expired', stale: true }), 'sign in');
+  assert.strictEqual(VM.trayTitle(g, { reason: 'no-credentials' }), 'sign in');
+  assert.strictEqual(VM.trayTitle(g, { reason: 'network', stale: true }), '73%*',
+    'a transient failure keeps the number: it was true and will be again');
+  assert.strictEqual(VM.trayTitle(g, { signingIn: true, reason: 'token-expired' }), 'signing in…',
+    'what is happening now outranks what is wrong');
+  assert.strictEqual(VM.trayTitle(null, {}), '–');
+  assert.strictEqual(VM.trayTitle({ percent: null }, {}), '–', 'a missing number is not 0%');
+});
+
 test('the sign-in button offers what can actually be done', () => {
   // A headless nudge only fixes an expired token with a live refresh token.
   // With no credentials at all, nothing is refreshable and the only real

@@ -263,6 +263,26 @@
   }
 
   /**
+   * What the menu bar shows beside the tray icon.
+   *
+   * The percentage is the point of the app, but only while it means
+   * something. A stale reading is a number from a window that may have
+   * reset hours ago — after an overnight restore it is last night's — so a
+   * credential failure says what is wrong instead of showing a figure that
+   * looks live. A stale reading with a merely transient failure (network,
+   * a throttle) keeps its number, because that one really is the last true
+   * value and is about to be true again.
+   *
+   * @param {{percent?: number}|null} session
+   */
+  function trayTitle(session, { signingIn, reason, stale } = {}) {
+    if (signingIn) return 'signing in…';
+    if (isCredentialProblem(reason)) return 'sign in';
+    if (!session || typeof session.percent !== 'number') return '–';
+    return stale === true ? `${session.percent}%*` : `${session.percent}%`;
+  }
+
+  /**
    * What the sign-in button should say, and whether it can be pressed.
    *
    * The headless nudge fixes exactly one thing: an expired access token
@@ -304,7 +324,7 @@
   }
 
   return {
-    tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine, signInAction,
+    tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine, signInAction, trayTitle,
     wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem
   };
 }));
