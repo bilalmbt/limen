@@ -922,8 +922,15 @@ async function primeNow() {
  * Held as two settings it could land half-applied — a time selected while
  * chain stayed on, where chain then wins and the click looks ignored.
  */
+let rememberedPrimeAt = '';
 function setPrimeMode(mode) {
-  const { chain, times } = prime.resolveMode(mode, config.primeAt);
+  // Chaining clears primeAt on disk on purpose — a time stored beside chain
+  // looks like it applied. But the user did not throw it away, and switching
+  // to chain and back was silently resetting 06:30 to 08:00.
+  if (config.primeAt.length) rememberedPrimeAt = config.primeAt[0];
+  const known = config.primeAt.length ? config.primeAt
+    : rememberedPrimeAt ? [rememberedPrimeAt] : [];
+  const { chain, times } = prime.resolveMode(mode, known);
   config.primeChain = chain;
   config.primeAt = times;
   saveConfig({ primeChain: chain, primeAt: times });
@@ -1178,17 +1185,21 @@ function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
   const paused = alertsPausedUntil > Date.now();
   const signature = [
-    credProblem(), signingIn, machine.wings, paused, primeNote(), config.contentProtection,
+    credProblem(), signingIn, pendingTerminal, machine.wings, paused, primeNote(), config.contentProtection,
     priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
     (lastData.gauges || []).length > 0, autostart.isEnabled()
   ].join('|');
   if (!force && signature === menuSignature) return;
-  menuSignature = signature;
 
   tray.setContextMenu(Menu.buildFromTemplate([
     ...(credProblem() ? [
       {
-        label: signingIn ? 'Signing in…' : 'Sign in with Claude Code',
+        // The panel's button changes to name Terminal before it opens one;
+        // this item never did, so the second click activated Terminal and
+        // typed a command from a label that had promised a sign-in.
+        label: signingIn ? 'Signing in…'
+          : pendingTerminal ? 'Open Terminal to sign in'
+          : 'Sign in with Claude Code',
         enabled: !signingIn,
         click: () => signInViaClaudeCode()
       },
@@ -1249,7 +1260,7 @@ function buildMenu(force = false) {
       label: paused ? 'Alerts paused' : 'Pause alerts',
       submenu: [
         { label: 'For 1 hour', click: () => pauseAlerts(60) },
-        { label: 'Until tomorrow', click: () => pauseAlerts(60 * 12) },
+        { label: 'For 12 hours', click: () => pauseAlerts(60 * 12) },
         { label: 'Resume alerts', enabled: paused, click: () => pauseAlerts(0) }
       ]
     },
@@ -1279,16 +1290,28 @@ function buildMenu(force = false) {
     // handle it names gets an item that actually goes there.
     { label: '@billybowss on X', click: () => openExternal('https://x.com/billybowss') },
     { type: 'separator' },
-    { label: 'Restart the island', click: () => autostart.restart() },
-    { label: 'Quit (until next login)', click: () => app.quit() }
+    {
+      // A checkout without a LaunchAgent has nothing to restart, and the
+      // click used to do nothing at all, silently.
+      label: 'Restart the island',
+      click: () => { if (!autostart.restart()) trace('restart: nothing to restart (no login item)'); }
+    },
+    { label: 'Quit', click: () => app.quit() }
   ]));
+  // Recorded only once the menu is actually installed. Set before, a throw
+  // inside buildFromTemplate left the cache claiming this signature was on
+  // screen, and every later unforced rebuild returned early — a tray frozen
+  // on a menu that was never drawn.
+  menuSignature = signature;
 }
 
 /** "weekdays" / "every day" / "Mon, Wed" — for the tray, which has no room. */
 function daysLabel() {
   const d = [...(config.primeDays || [])].sort((a, b) => a - b);
-  if (!d.length) return ' — no days selected';
-  if (d.length === 7) return ' every day';
+  // An empty list means every day to slotsFor() — deliberately, and tested.
+  // Saying "no days selected" told people the opposite of what the schedule
+  // was about to do.
+  if (!d.length || d.length === 7) return ' every day';
   if (d.join() === '1,2,3,4,5') return ' on weekdays';
   if (d.join() === '0,6') return ' at weekends';
   const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1340,16 +1363,37 @@ function pauseAlerts(minutes) {
  * the edit.
  */
 function reloadConfig() {
-  const before = { shortcut: config.shortcut, wings: config.wings };
+  const before = {
+    shortcut: config.shortcut,
+    showShortcut: config.showShortcut,
+    wings: config.wings,
+    contentProtection: config.contentProtection
+  };
   config = loadConfig();
   machine.wings = config.wings === true;
 
-  if (before.shortcut !== config.shortcut) {
+  // BOTH shortcuts: comparing only the first left a changed showShortcut
+  // unregistered, with the old binding still live and no trace of either.
+  if (before.shortcut !== config.shortcut || before.showShortcut !== config.showShortcut) {
     globalShortcut.unregisterAll();
     registerShortcuts();
   }
+  // The menu redrew this checkbox from the new config while the window kept
+  // the old setting, so the tray reported a protection that was not applied.
+  if (before.contentProtection !== config.contentProtection &&
+      win && !win.isDestroyed()) {
+    win.setContentProtection(config.contentProtection);
+    trace(`content protection: ${config.contentProtection ? 'on' : 'off'} (reloaded)`);
+  }
   placeOn(currentDisplay() || islandDisplay());
   sendGeometry();
+  // Turning wings on in the file has to show the window, exactly as the
+  // tray toggle does. Sending 'wings' to a hidden window drew chips nobody
+  // could see, under a checkbox that said they were on.
+  if (machine.wings && win && !win.isDestroyed()) {
+    clearTimeout(hideTimer);
+    win.showInactive();
+  }
   if (ready && win && !win.isDestroyed()) win.webContents.send('wings', machine.wings);
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => refresh('schedule'), 1000);

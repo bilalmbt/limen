@@ -52,6 +52,29 @@ function domain() {
  * when none is — an unknown state, which the menu shows as disabled rather
  * than as a lie in either direction.
  */
+/**
+ * Read one service out of `launchctl print-disabled`.
+ *
+ * The output format changed. macOS 11 and earlier printed
+ * `"label" => true`, where true meant DISABLED; current macOS prints
+ * `"label" => disabled` / `=> enabled`. The old reader tested for the word
+ * "true", which never appears now — so a service the user had just disabled
+ * read back as enabled, and the "Start at login" checkbox could not be
+ * unticked: it snapped straight back every time.
+ *
+ * Absent from the list means never disabled, which is enabled.
+ *
+ * @returns {boolean|null} enabled, or null when the answer is not in there
+ */
+function parseDisabled(output, label) {
+  const line = String(output || '').split('\n').find((l) => l.includes(`"${label}"`));
+  if (!line) return true;
+  const value = (line.split('=>')[1] || '').trim().toLowerCase();
+  if (value.startsWith('disabled') || value.startsWith('true')) return false;
+  if (value.startsWith('enabled') || value.startsWith('false')) return true;
+  return null;   // a third format we have never seen: say so rather than guess
+}
+
 function isEnabled() {
   if (process.platform !== 'darwin') return null;
   if (packaged()) {
@@ -66,8 +89,7 @@ function isEnabled() {
   try {
     const out = execFileSync('/bin/launchctl', ['print-disabled', domain()],
       { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-    const line = out.split('\n').find((l) => l.includes(`"${LABEL}"`));
-    return line ? !/true/.test(line) : true;
+    return parseDisabled(out, LABEL);
   } catch (_) {
     return null;
   }
@@ -118,4 +140,4 @@ function restart() {
   }
 }
 
-module.exports = { isEnabled, setEnabled, restart, packaged, LABEL, PLIST };
+module.exports = { isEnabled, setEnabled, restart, packaged, parseDisabled, LABEL, PLIST };

@@ -9,7 +9,7 @@
     "usage": "node src/usage.js",
     "usage:line": "node src/usage.js --oneline",
     "spike": "electron src/spike.js",
-    "test": "node test/paths.test.js && node test/renderer.test.js && node test/notch.test.js && node test/trend.test.js && node test/prime.test.js && node test/config.test.js && node test/island-state.test.js && node test/viewmodel.test.js && node test/usage.test.js && node test/schedule.test.js && node test/alerts.test.js && node test/state.test.js",
+    "test": "node test/paths.test.js && node test/renderer.test.js && node test/autostart.test.js && node test/notch.test.js && node test/trend.test.js && node test/prime.test.js && node test/config.test.js && node test/island-state.test.js && node test/viewmodel.test.js && node test/usage.test.js && node test/schedule.test.js && node test/alerts.test.js && node test/state.test.js",
     "dist": "electron-builder --mac",
     "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
     "notarize": "bash scripts/notarize.sh",

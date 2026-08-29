@@ -146,4 +146,27 @@ test('slots are shown the way they were written', () => {
   assert.strictEqual(P.formatSlot(NaN), '');
 });
 
+test('switching to chain and back keeps the time the user chose', () => {
+  // The comment in resolveMode says this must hold. It did not: chain
+  // returned times: [] and coming back produced the 08:00 default, so two
+  // adjacent radio buttons in one submenu silently reset 06:30.
+  const at = P.resolveMode('at', ['06:30']);
+  assert.deepStrictEqual(at.times, ['06:30']);
+  const chain = P.resolveMode('chain', at.times);
+  assert.strictEqual(chain.chain, true);
+  // resolveMode itself still clears it — the settings file must not hold a
+  // time beside chain — so the caller is what remembers. This asserts the
+  // rule the caller has to honour.
+  assert.deepStrictEqual(chain.times, [], 'nothing beside chain on disk');
+  assert.deepStrictEqual(P.resolveMode('at', ['06:30']).times, ['06:30'],
+    'given the remembered time, it comes back');
+});
+
+test('an empty day list means every day, and the label must agree', () => {
+  const base = { times: ['08:00'], days: [], weekday: 0, minutesNow: 480 };
+  assert.strictEqual(P.dueSlot(base), 480, 'Sunday, with no days listed: it fires');
+  assert.strictEqual(P.dueSlot({ ...base, weekday: 3 }), 480);
+  // The tray used to render this same input as " — no days selected".
+});
+
 console.log(`\n${passed} priming tests passed`);
