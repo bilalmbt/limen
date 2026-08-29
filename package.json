@@ -1,6 +1,6 @@
 {
   "name": "limen",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Your Claude Code usage limits, in the notch: an island that is invisible until you glance at it.",
   "main": "src/main.js",
   "scripts": {
@@ -24,7 +24,7 @@
   "build": {
     "appId": "io.moobytes.limen",
     "productName": "Limen",
-    "copyright": "\u00a9 2026 @billybowss",
+    "copyright": "© 2026 @billybowss",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -52,7 +52,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "LSUIElement": 1,
-        "NSHumanReadableCopyright": "\u00a9 2026 @billybowss \u00b7 MIT"
+        "NSHumanReadableCopyright": "© 2026 @billybowss · MIT"
       },
       "notarize": false
     },
