@@ -34,8 +34,11 @@ function parseTime(text) {
 /** The configured slots for a given weekday, in order, as minutes. */
 function slotsFor(times, days, weekday) {
   if (!Array.isArray(times) || !times.length) return [];
-  const onDays = Array.isArray(days) && days.length ? days : [0, 1, 2, 3, 4, 5, 6];
-  if (!onDays.includes(weekday)) return [];
+  // No days means no days. It used to mean EVERY day, so unticking the last
+  // chip in the panel — the one gesture that unmistakably says stop — turned
+  // auto-open maximally on and spent a real message to prove it. The default
+  // list is weekdays, so an empty one only ever arrives on purpose.
+  if (!Array.isArray(days) || !days.includes(weekday)) return [];
   return times.map(parseTime).filter((m) => m !== null).sort((a, b) => a - b);
 }
 

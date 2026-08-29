@@ -160,7 +160,11 @@ let refreshTimer = null;
 let lastCursor = null;   // for stillness: a moving cursor is not a hover
 let hideTimer = null;
 if (lastGood) {
-  lastData = { ...lastGood, stale: true, reason: 'loading' };
+  // Without the trend: "full in ~35 min" carries no timestamp, so a
+  // projection computed yesterday reads as a live one, against a window that
+  // has since reset. The next fetch recomputes it from real samples.
+  const { trend: _staleTrend, ...restored } = lastGood;
+  lastData = { ...restored, stale: true, reason: 'loading' };
   // Size the window for the restored gauges, or the panel opens clipped
   // for accounts with more than three quotas until the first fetch lands.
   rows = Math.max(1, lastGood.gauges.length);
@@ -435,7 +439,11 @@ function poll() {
   if (!display) { setInteractive(false); return; }
   const cursor = screen.getCursorScreenPoint();
   const inHot = N.inHotZone(cursor, display, overrides());
-  setPollRate(I.windowVisible(machine) || inHot ? POLL_LIVE : POLL_IDLE);
+  // Not windowVisible(): that is true whenever the chips are out, and the
+  // chips are the always-on mode — so sampling the cursor 25 times a second,
+  // forever, was the normal state of the app. Wings need no cursor at all;
+  // what needs the fast rate is a state that can change under one.
+  setPollRate(machine.state !== I.DORMANT || inHot ? POLL_LIVE : POLL_IDLE);
 
   // Keep-alive is the geometric area OR the surface actually drawn, padded:
   // a control outside it would collapse the panel under the cursor reaching
@@ -548,7 +556,14 @@ async function refresh(cause = 'schedule', force = false) {
     : nextDelay(data, failures, config.refreshSeconds);
 
   try {
-    if (data.ok) {
+    if (data.ok && !data.gauges.length) {
+      // A parseable 200 with nothing in it is not news. Taken as good it
+      // replaced the last real reading, blanked the island, and persisted
+      // the void — after which restoreLastGood had nothing to restore
+      // either, because it rejects empty readings on the way back in.
+      trace('empty reading: keeping the last good one');
+      lastData = lastGood ? { ...lastGood, stale: true, checkedAt: data.fetchedAt } : data;
+    } else if (data.ok) {
       history = trend.push(history, data.gauges, data.fetchedAt);
       data.trend = trend.summarize(history, data.gauges, data.fetchedAt);
       lastGood = data;
@@ -667,6 +682,7 @@ function raiseAlerts(gauges, summary) {
  */
 const peekQueue = [];
 let peekTimer = null;
+let peekShowing = false;
 function queuePeek(item) {
   peekQueue.push(item);
   if (peekQueue.length > 2) {
@@ -676,20 +692,30 @@ function queuePeek(item) {
     applyEffects(r.effects);
     return;
   }
-  if (!peekTimer) drainPeeks();
+  // `showing`, not `peekTimer`: drainPeeks armed a timer only if the queue
+  // was still non-empty AFTER its shift, which it never was — so the second
+  // alert of a poll drained immediately and overwrote the first, while the
+  // ledger had already recorded both as spoken. Session and weekly crossing
+  // together is the normal case, and the first one was never seen.
+  if (!peekShowing) drainPeeks();
 }
 
 function drainPeeks() {
+  if (!canShowIsland()) { peekQueue.length = 0; peekShowing = false; return; }
   const item = peekQueue.shift();
   clearTimeout(peekTimer);
   peekTimer = null;
-  if (!item) return;
+  if (!item) { peekShowing = false; return; }
 
   const r = I.alert(machine, item.gauge.id, Date.now());
   machine = r.m;
   applyEffects(r.effects);
   notify(item);
-  if (peekQueue.length) peekTimer = setTimeout(drainPeeks, I.T.peekMs + 400);
+  // One peek holds the island for peekMs; the next waits that out whether or
+  // not anything is queued behind it yet, so an alert arriving during a peek
+  // still gets its turn instead of replacing what is on screen.
+  peekShowing = true;
+  peekTimer = setTimeout(drainPeeks, I.T.peekMs + 400);
 }
 
 function notify(item) {
@@ -850,7 +876,12 @@ async function checkPrime() {
   if (Date.now() < primeFailUntil) return;
 
   const now = new Date();
-  const today = now.getDay();
+  // The DATE, not the weekday. Keyed by weekday index, "already primed at
+  // this slot today" was still true the next time that weekday came round,
+  // so a single-day schedule primed once and never again — and any schedule
+  // whose next run landed on the same weekday (a machine asleep between)
+  // died the same way.
+  const today = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const slot = prime.dueSlot({
     times: config.primeAt,
@@ -1103,9 +1134,11 @@ async function signInViaClaudeCode() {
   // only progress indicator vanished the moment the mouse moved off the
   // button — leaving the whole wait as apparent nothing.
   machine = { ...machine, busy: true };
-  const r = I.promote(machine);
-  machine = r.m;
-  applyEffects(r.effects);
+  if (canShowIsland()) {
+    const r = I.promote(machine);
+    machine = r.m;
+    applyEffects(r.effects);
+  }
   sendSignIn('working');
   updateTray();
   try {
@@ -1222,6 +1255,19 @@ function loginItemEnabled() {
   return loginItemCache;
 }
 
+/**
+ * Is there anywhere to draw the island at all?
+ *
+ * In clamshell with externalDisplays 'off' there is not, and poll() returns
+ * before the state machine ticks — so anything that opened the island there
+ * put it on the excluded screen with nothing able to close it again. The
+ * tray item was gated; the keyboard shortcut, the peek and the sign-in were
+ * not.
+ */
+function canShowIsland() {
+  return Boolean(islandDisplay());
+}
+
 function refreshHeldFor() {
   if (inFlight) return 'a moment';
   const now = Date.now();
@@ -1238,7 +1284,7 @@ function buildMenu(force = false) {
     credProblem(), signingIn, pendingTerminal, machine.wings, paused, primeNote(), config.contentProtection,
     priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
     (lastData.gauges || []).length > 0, lastData.ok === true, loginItemEnabled(),
-    refreshHeldFor(), Boolean(islandDisplay())
+    refreshHeldFor(), canShowIsland()
   ].join('|');
   if (!force && signature === menuSignature) return;
 
@@ -1264,7 +1310,7 @@ function buildMenu(force = false) {
       // island has no display, and opening the panel anyway drew it on the
       // screen the setting excluded — where nothing could then dismiss it,
       // because poll() returns before the state machine ever ticks.
-      enabled: Boolean(islandDisplay()),
+      enabled: canShowIsland(),
       accelerator: liveShortcuts['show usage'] || undefined,
       click: () => showPanel()
     },
@@ -1381,10 +1427,8 @@ function buildMenu(force = false) {
 /** "weekdays" / "every day" / "Mon, Wed" — for the tray, which has no room. */
 function daysLabel() {
   const d = [...(config.primeDays || [])].sort((a, b) => a - b);
-  // An empty list means every day to slotsFor() — deliberately, and tested.
-  // Saying "no days selected" told people the opposite of what the schedule
-  // was about to do.
-  if (!d.length || d.length === 7) return ' every day';
+  if (!d.length) return ' — no days selected';
+  if (d.length === 7) return ' every day';
   if (d.join() === '1,2,3,4,5') return ' on weekdays';
   if (d.join() === '0,6') return ' at weekends';
   const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1393,6 +1437,10 @@ function daysLabel() {
 
 /** Open the panel deliberately — from the tray, or the keyboard. */
 function showPanel() {
+  if (!canShowIsland()) {
+    trace('show usage: no display for the island; nothing to show it on');
+    return;
+  }
   const r = I.promote(machine);
   machine = r.m;
   applyEffects(r.effects);
@@ -1463,12 +1511,21 @@ function reloadConfig() {
     win.setContentProtection(config.contentProtection);
     trace(`content protection: ${config.contentProtection ? 'on' : 'off'} (reloaded)`);
   }
-  placeOn(currentDisplay() || islandDisplay());
+  // islandDisplay() FIRST: it is what reads the new externalDisplays and
+  // displayId, and currentDisplay() won whenever the old screen was still
+  // attached — so the two settings with no tray control had no live
+  // application path at all.
+  const target = islandDisplay();
+  if (target) placeOn(target);
+  else if (win && !win.isDestroyed()) {
+    trace('settings reloaded: no display for the island; hiding');
+    win.hide();
+  }
   sendGeometry();
   // Turning wings on in the file has to show the window, exactly as the
   // tray toggle does. Sending 'wings' to a hidden window drew chips nobody
   // could see, under a checkbox that said they were on.
-  if (machine.wings && win && !win.isDestroyed()) {
+  if (machine.wings && target && win && !win.isDestroyed()) {
     clearTimeout(hideTimer);
     win.showInactive();
   }

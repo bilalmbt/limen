@@ -62,8 +62,12 @@ test('the weekend is respected', () => {
   assert.strictEqual(P.dueSlot({ ...base, weekday: 0, days: [0, 6] }), 480);
 });
 
-test('an empty day list means every day', () => {
-  assert.strictEqual(P.dueSlot({ ...base, weekday: 0, days: [] }), 480);
+test('an empty day list means no days at all', () => {
+  // It used to mean every day. Unticking the last chip in the panel is the
+  // clearest "stop" gesture there is, and it turned auto-open fully on.
+  for (let weekday = 0; weekday < 7; weekday++) {
+    assert.strictEqual(P.dueSlot({ ...base, weekday, days: [] }), null);
+  }
 });
 
 test('with several slots, the one that is due wins', () => {
@@ -162,11 +166,27 @@ test('switching to chain and back keeps the time the user chose', () => {
     'given the remembered time, it comes back');
 });
 
-test('an empty day list means every day, and the label must agree', () => {
-  const base = { times: ['08:00'], days: [], weekday: 0, minutesNow: 480 };
-  assert.strictEqual(P.dueSlot(base), 480, 'Sunday, with no days listed: it fires');
-  assert.strictEqual(P.dueSlot({ ...base, weekday: 3 }), 480);
-  // The tray used to render this same input as " — no days selected".
+
+
+test('unticking every day stops auto-open, rather than starting it daily', () => {
+  let days = [1, 2, 3, 4, 5];
+  for (const d of [1, 2, 3, 4, 5]) days = P.toggleDay(days, d);
+  assert.deepStrictEqual(days, [], 'the gesture is allowed');
+  for (let weekday = 0; weekday < 7; weekday++) {
+    assert.strictEqual(P.dueSlot({ times: ['08:00'], days, weekday, minutesNow: 480 }), null,
+      'and it means what it looks like it means');
+  }
+});
+
+test('a slot is primed once per DATE, not once per weekday', () => {
+  // lastPrime was keyed by getDay(), which repeats every seven days: a
+  // Monday-only schedule primed once and was then "already done" every
+  // Monday after. This asserts the shape the caller must key by.
+  const monday = new Date('2026-08-31T08:02:00');
+  const nextMonday = new Date('2026-09-07T08:02:00');
+  const key = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  assert.notStrictEqual(key(monday), key(nextMonday), 'a week later is a different day');
+  assert.strictEqual(monday.getDay(), nextMonday.getDay(), 'but the same weekday — the old key');
 });
 
 console.log(`\n${passed} priming tests passed`);

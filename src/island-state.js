@@ -68,7 +68,13 @@ function tick(m, { inHot, inKeepAlive, now, moved = 0 }, t = T) {
       const parked = moved <= t.stillPt;
       const quickReturn = next.lastCollapseAt !== null &&
         now - next.lastCollapseAt <= t.reentryMs;
-      if (!parked && !quickReturn) {
+      // Stillness is required either way. Quick return used to be OR'd in
+      // here, so for a second and a half after ANY collapse a cursor merely
+      // travelling through the strip armed the dwell — backdated, so it
+      // opened on the very next sample. That is precisely the traffic the
+      // stillness rule exists to ignore, leaking through the re-entry hatch,
+      // and each reopen re-armed the hatch for the next crossing.
+      if (!parked) {
         next.dwellSince = null;
       } else if (next.dwellSince === null) {
         // Coming straight back is intent already established: re-opening
@@ -136,28 +142,6 @@ function alert(m, gaugeId, now, t = T) {
   return { m: next, effects: ['peek'] };
 }
 
-/**
- * A mouse-down anywhere: collapse immediately, bypassing the grace. The
- * island must never sit over something the user just decided to click.
- * (The shell wires this where it can observe clicks; the window level is
- * chosen so open menus outrank the island even when it cannot.)
- */
-function mouseDown(m, now = 0) {
-  const next = { ...m, dwellSince: null, hideAt: null };
-  if (m.busy) return { m: next, effects: [] };   // a running task keeps its panel
-  if (m.state === EXPANDED) {
-    next.state = DORMANT;
-    next.lastCollapseAt = now;
-    return { m: next, effects: ['collapse'] };
-  }
-  if (m.state === PEEK) {
-    next.state = DORMANT;
-    next.peekUntil = null;
-    next.peekGaugeId = null;
-    return { m: next, effects: ['unpeek'] };
-  }
-  return { m: next, effects: [] };
-}
 
 /**
  * A deliberate click on the island's own surface: show everything. A peek
@@ -211,5 +195,5 @@ function windowVisible(m) {
 
 module.exports = {
   DORMANT, PEEK, EXPANDED, T,
-  create, tick, alert, mouseDown, promote, toggle, toggleWings, windowVisible
+  create, tick, alert, promote, toggle, toggleWings, windowVisible
 };

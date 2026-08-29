@@ -102,8 +102,27 @@ function httpsGetJson(token) {
 
 /** One {utilization, resets_at} block to a whole percentage, or null if absent. */
 function pct(block) {
-  if (!block || block.utilization === null || block.utilization === undefined) return null;
-  return Math.max(0, Math.min(100, Math.round(block.utilization)));
+  if (!block) return null;
+  const raw = block.utilization;
+  // Number.isFinite, not a null check: a string or a NaN passed straight
+  // through Math.round and became a gauge reading "NaN%" in crit red, and
+  // "null%" after a restart, because JSON has no NaN. A value we cannot read
+  // is a missing limit, which this module already knows how to not draw.
+  if (!Number.isFinite(typeof raw === 'string' ? Number(raw) : raw)) return null;
+  return Math.max(0, Math.min(100, Math.round(Number(raw))));
+}
+
+/**
+ * A model name from an API key: "seven_day_claude_neptune" -> "Neptune".
+ *
+ * Internal codenames are the risk — showing someone a word they have never
+ * seen is worse than showing them nothing — so anything that does not look
+ * like a name (digits, single letters, over-long) is refused.
+ */
+function titleFromSlug(slug) {
+  const word = String(slug || '').split('_').filter(Boolean).pop() || '';
+  if (!/^[a-z][a-z-]{2,11}$/.test(word)) return null;
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /** Letter shown at the centre of a model's ring. */
@@ -178,7 +197,11 @@ function normalize(raw) {
     const block = raw[key];
     if (!block || typeof block !== 'object' || pct(block) === null) continue;
     const slug = key.slice('seven_day_'.length);
-    const name = KNOWN_MODELS[slug];
+    // A model we have not heard of is still a real quota the account is
+    // being held to. Titled from its own key rather than dropped — the
+    // comment above has always said so; the code used to say otherwise and
+    // silently lose it.
+    const name = KNOWN_MODELS[slug] || titleFromSlug(slug);
     if (!name) continue;
     addModel(name, pct(block), block.resets_at, false);
   }
@@ -207,8 +230,16 @@ function normalize(raw) {
   // will cut you off first.
   const activeLimit = (raw.limits || []).find((l) => l.is_active === true);
   if (activeLimit) {
+    // Models too. A model present in BOTH shapes is claimed by the
+    // seven_day_* loop, which hardcodes active:false, so the weekly_scoped
+    // entry carrying is_active was thrown away by the dedup — and the limit
+    // actually biting was drawn as though it were not. severity already got
+    // this second pass; active did not.
     const group = activeLimit.kind === 'session' ? 'session'
-      : activeLimit.kind === 'weekly_all' ? 'weekly' : null;
+      : activeLimit.kind === 'weekly_all' ? 'weekly'
+      : activeLimit.scope && activeLimit.scope.model
+        ? `model-${String(activeLimit.scope.model.display_name).toLowerCase()}`
+        : null;
     const g = group && gauges.find((x) => x.id === group);
     if (g) g.active = true;
   }

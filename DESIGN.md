@@ -162,7 +162,7 @@ top-center, that appears only while the island has something to say
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,
   16:9 iMac shape), auto-hidden menu bars, negative display coordinates,
   clamshell fallback, and the keep-alive ⊇ hot-zone invariant.
-- **The state machine, 28 tests** — stillness-gated dwell, grace, re-entry,
+- **The state machine, 27 tests** — stillness-gated dwell, grace, re-entry,
   the busy hold, peek timing, promotion, alert-never-demotes, mouse-down
   collapse, wings orthogonality, input immutability.
 - **Burn rate, 12 tests** — mostly about staying quiet: two samples are a
@@ -170,11 +170,11 @@ top-center, that appears only while the island has something to say
   voids a rate rather than reporting a negative one.
 - **Wording and tones, 29 tests** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
-- **The data layer, 47 tests** — normalization (a missing quota never becomes
+- **The data layer, 48 tests** — normalization (a missing quota never becomes
   a displayed zero), the one gate every fetch passes, the alert ledger —
   once per level per window, pace warnings included, and a pause that skips
   rather than holds — and persisted state.
-- **Settings and priming, 37 tests** — a hand-edited file that cannot break
+- **Settings and priming, 39 tests** — a hand-edited file that cannot break
   the app, the wingCount migration, the band's source rules (canonical order,
   a cap of three, never empty), and the auto-open schedule.
 

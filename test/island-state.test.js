@@ -139,25 +139,6 @@ test('a second alert refreshes a peek that is already out', () => {
   assert.strictEqual(second.m.peekUntil, 7000, 'the clock must restart for the new alert');
 });
 
-test('a mouse-down collapses the panel immediately, no grace', () => {
-  const { m } = run(I.create(), [[IN, 0], [IN, 130]]);
-  const r = I.mouseDown(m);
-  assert.strictEqual(r.m.state, I.DORMANT);
-  assert.deepStrictEqual(r.effects, ['collapse']);
-});
-
-test('a mouse-down dismisses a peek', () => {
-  const r = I.mouseDown(I.alert(I.create(), 'session', 0).m);
-  assert.strictEqual(r.m.state, I.DORMANT);
-  assert.deepStrictEqual(r.effects, ['unpeek']);
-});
-
-test('a mouse-down while dormant changes nothing visible', () => {
-  const r = I.mouseDown(I.create());
-  assert.strictEqual(r.m.state, I.DORMANT);
-  assert.deepStrictEqual(r.effects, []);
-});
-
 test('a click on a peek promotes it to the full panel', () => {
   const r = I.promote(I.alert(I.create(), 'session', 0).m);
   assert.strictEqual(r.m.state, I.EXPANDED);
@@ -243,9 +224,36 @@ test('ticks never mutate their input machine', () => {
   Object.freeze(m);
   assert.doesNotThrow(() => I.tick(m, { ...IN, now: 0 }));
   assert.doesNotThrow(() => I.alert(m, 'session', 0));
-  assert.doesNotThrow(() => I.mouseDown(m));
   assert.doesNotThrow(() => I.promote(m));
   assert.doesNotThrow(() => I.toggleWings(m));
+});
+
+test('a cursor crossing the strip after a collapse stays shut', () => {
+  // Quick return used to be OR'd with stillness, so for reentryMs after ANY
+  // collapse a cursor merely travelling through armed the dwell — backdated,
+  // so it opened on the next sample. The route from the app menus to Control
+  // Center runs straight through this strip.
+  const collapsed = { ...I.create(), state: I.DORMANT, lastCollapseAt: 1000 };
+  const crossing = { inHot: true, inKeepAlive: true, moved: 35, busy: false };
+  let m = collapsed;
+  for (const now of [1100, 1140, 1180, 1400, 1900]) {
+    m = I.tick(m, { ...crossing, now }).m;
+    assert.strictEqual(m.state, I.DORMANT, `still shut at ${now}`);
+  }
+});
+
+test('but a deliberate hover still skips most of the dwell coming back', () => {
+  const collapsed = { ...I.create(), state: I.DORMANT, lastCollapseAt: 1000 };
+  const parked = { inHot: true, inKeepAlive: true, moved: 0, busy: false };
+  const m = I.tick(collapsed, { ...parked, now: 1100 }).m;
+  assert.strictEqual(I.tick(m, { ...parked, now: 1140 }).m.state, I.EXPANDED,
+    'one sample later, not a whole dwell later');
+
+  const cold = I.tick(I.create(), { ...parked, now: 5000 }).m;
+  assert.strictEqual(I.tick(cold, { ...parked, now: 5040 }).m.state, I.DORMANT,
+    'a cold hover still serves the full dwell');
+  assert.strictEqual(I.tick(cold, { ...parked, now: 5000 + I.T.dwellMs + 40 }).m.state,
+    I.EXPANDED);
 });
 
 console.log(`\n${passed} island state tests passed`);

@@ -20,10 +20,14 @@ function nextDelay(result, failures, baseSeconds) {
   const base = Math.max(MIN_SECONDS, baseSeconds || 60) * 1000;
   if (result && result.ok) return base;
 
-  // The server told us how long to wait: obey it, never ask sooner. (Clamped
-  // to the same cap as our own backoff.)
+  // The server told us how long to wait: obey it, never ask sooner — and
+  // never cap it either. MAX_DELAY_MS is our ceiling on our own guesswork;
+  // a Retry-After is the endpoint saying when it will answer. Truncating an
+  // hour to fifteen minutes bought four rejected requests an hour against a
+  // server that had already pushed back, and blocked the user's own refresh
+  // button for the whole of it, since serverImposed makes the gate unwaivable.
   if (result && Number.isFinite(result.retryAfter) && result.retryAfter > 0) {
-    return Math.min(MAX_DELAY_MS, Math.max(base, result.retryAfter * 1000));
+    return Math.max(base, result.retryAfter * 1000);
   }
 
   const steps = Math.min(Math.max(1, failures), MAX_FAILURES);
