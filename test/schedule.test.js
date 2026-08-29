@@ -99,4 +99,17 @@ test('a held mouse button cannot become a flood', () => {
     'clicking again a second later must not issue a second request');
 });
 
+test('a forced fetch is still floored, which a sign-in must not misread', () => {
+  // The sign-in flow nudges Claude Code, then forces a refresh to see if it
+  // worked. A hover a second earlier can put that forced call inside the
+  // five-second floor, where it is refused — and the caller then reads the
+  // OLD failure as "the nudge did not work".
+  const base = { now: 1000, nextAllowedAt: 1000 + 120000, serverImposed: false, force: true };
+  assert.strictEqual(mayFetch({ ...base, lastFetchAt: 1000 }), false, 'immediately after: refused');
+  assert.strictEqual(mayFetch({ ...base, now: 1000 + 4999, lastFetchAt: 1000 }), false,
+    'a millisecond short is still short');
+  assert.strictEqual(mayFetch({ ...base, now: 1000 + FORCE_FLOOR_MS, lastFetchAt: 1000 }), true,
+    'and at the floor it goes through — which is why the caller waits it out');
+});
+
 console.log(`\n${passed} schedule tests passed`);

@@ -111,6 +111,13 @@
     if (reason === 'token-expired' && accountLive === true) {
       return 'Claude Code has not refreshed its token yet';
     }
+    // Claude Code is signed in and we still found nothing. The read failed,
+    // not the account — a locked Keychain, a denied prompt, an entry under
+    // another name. Saying "isn't signed in" sends someone to log in again,
+    // which produces the same nothing, which is a loop with no exit.
+    if (reason === 'no-credentials' && accountLive === true) {
+      return 'Claude Code is signed in, but Limen could not read its token';
+    }
     // Diagnoses, not instructions: the panel's button carries the action, and
     // a note that repeats it in dimmer type says the same thing twice.
     const known = {
@@ -266,17 +273,33 @@
    * instead, and naming it is also what makes opening Terminal acceptable:
    * a button that says it will open Terminal may open Terminal.
    */
-  function signInAction(reason, status, accountLive) {
+  function signInAction(reason, status, ctx) {
+    const { accountLive, windowOpen } = ctx || {};
     if (status === 'working') return { label: 'Signing in…', disabled: true };
-    if (status === 'prime-failed') return { label: 'Could not sign in — try again', disabled: false };
     if (status === 'needs-terminal') return { label: 'Open Terminal to finish', disabled: false };
+    // A fresh login is still the best move even when the account is live:
+    // it rewrites the Keychain entry, which is what an unreadable one needs.
+    if (reason === 'no-credentials' && accountLive === true) {
+      return { label: 'Open Terminal to sign in again', disabled: false };
+    }
     if (reason === 'no-credentials' || accountLive === false) {
       return { label: 'Open Terminal to sign in', disabled: false };
     }
     // Signed in already: the button's job is to make Claude Code rotate a
     // token it is perfectly entitled to rotate, so it should not be offering
     // a sign-in to someone who is signed in.
-    if (accountLive === true) return { label: 'Refresh from Claude Code', disabled: false };
+    //
+    // But the only way to make it rotate one is a real message, and a real
+    // message STARTS THE FIVE-HOUR WINDOW — the boundary this app has a whole
+    // scheduling feature to help people place on purpose. Inside a window
+    // already running it costs nothing and stays quiet. Outside one, the
+    // button says what it will do, because a widget that starts your clock
+    // without saying so is worse than one that asks.
+    if (accountLive === true) {
+      return windowOpen
+        ? { label: 'Refresh from Claude Code', disabled: false }
+        : { label: 'Refresh — starts a 5-hour window', disabled: false };
+    }
     return { label: 'Sign in with Claude Code', disabled: false };
   }
 

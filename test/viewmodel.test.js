@@ -268,13 +268,48 @@ test('an expired token on a live account is not an expired sign-in', () => {
     'the status strip agrees with the label');
 });
 
+test('a live account with an unreadable token is not "not signed in"', () => {
+  // The Keychain read swallows a locked keychain, a denied prompt and a
+  // missing entry alike. When the account is demonstrably live, saying the
+  // user is signed out sends them to log in again for no effect at all.
+  assert.strictEqual(VM.reasonLabel('no-credentials', true),
+    'Claude Code is signed in, but Limen could not read its token');
+  assert.strictEqual(VM.reasonLabel('no-credentials', false), "Claude Code isn't signed in");
+  assert.strictEqual(VM.reasonLabel('no-credentials'), "Claude Code isn't signed in");
+  assert.strictEqual(VM.signInAction('no-credentials', null, { accountLive: true }).label,
+    'Open Terminal to sign in again', 'a fresh login rewrites the entry, which is the fix');
+});
+
 test('the button asks for a refresh when there is nothing to sign into', () => {
-  assert.strictEqual(VM.signInAction('token-expired', null, true).label,
+  const live = { accountLive: true, windowOpen: true };
+  assert.strictEqual(VM.signInAction('token-expired', null, live).label,
     'Refresh from Claude Code', 'signed in already — do not offer a sign-in');
-  assert.strictEqual(VM.signInAction('token-expired', null, false).label,
+  assert.strictEqual(VM.signInAction('token-expired', null, { accountLive: false }).label,
     'Open Terminal to sign in', 'no live account: only a browser will do');
-  assert.strictEqual(VM.signInAction('token-expired', null, null).label,
+  assert.strictEqual(VM.signInAction('token-expired', null, {}).label,
     'Sign in with Claude Code', 'unknown keeps the old wording');
+});
+
+test('the button says when refreshing will start a five-hour window', () => {
+  // The only way to make Claude Code rotate its token is a real message, and
+  // a real message starts the window. Inside one already running that is
+  // free; outside one it is a decision, and it is the user's.
+  assert.strictEqual(
+    VM.signInAction('token-expired', null, { accountLive: true, windowOpen: false }).label,
+    'Refresh — starts a 5-hour window');
+  assert.strictEqual(
+    VM.signInAction('token-expired', null, { accountLive: true, windowOpen: true }).label,
+    'Refresh from Claude Code', 'inside an open window it costs nothing, so it says nothing');
+});
+
+test('a failed session prime does not relabel the sign-in button', () => {
+  // Both travel on the same IPC channel. A prime that failed while all was
+  // well used to leave the sign-in button claiming a sign-in that was never
+  // attempted, the next time credentials went bad.
+  assert.strictEqual(VM.signInAction('token-expired', 'prime-failed', {}).label,
+    'Sign in with Claude Code');
+  assert.strictEqual(VM.signInAction('token-expired', 'priming', {}).label,
+    'Sign in with Claude Code');
 });
 
 test('the sign-in button offers what can actually be done', () => {
@@ -285,14 +320,16 @@ test('the sign-in button offers what can actually be done', () => {
   assert.strictEqual(VM.signInAction('token-expired').label, 'Sign in with Claude Code',
     'an expired token IS worth a silent nudge');
   assert.strictEqual(VM.signInAction('unauthorized').label, 'Sign in with Claude Code');
+  assert.strictEqual(VM.signInAction('no-credentials', null, undefined).label,
+    'Open Terminal to sign in', 'no context object is not a crash');
 });
 
 test('the sign-in button reports every outcome, and locks while working', () => {
-  assert.deepStrictEqual(VM.signInAction('token-expired', 'working'),
+  assert.deepStrictEqual(VM.signInAction('token-expired', 'working', {}),
     { label: 'Signing in…', disabled: true }, 'no second click while one is running');
-  assert.strictEqual(VM.signInAction('token-expired', 'needs-terminal').label,
+  assert.strictEqual(VM.signInAction('token-expired', 'needs-terminal', {}).label,
     'Open Terminal to finish');
-  assert.strictEqual(VM.signInAction('no-credentials', 'working').disabled, true,
+  assert.strictEqual(VM.signInAction('no-credentials', 'working', {}).disabled, true,
     'status outranks the reason: a run in progress is a run in progress');
 });
 

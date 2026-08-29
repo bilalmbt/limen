@@ -156,7 +156,7 @@ top-center, that appears only while the island has something to say
 
 ## What the tests cover
 
-`npm test` runs 180 tests over the pure modules, no Electron needed:
+`npm test` runs 188 tests over the pure modules, no Electron needed:
 
 - **Notch geometry, 24 tests** — the aspect rule against nine real display
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,

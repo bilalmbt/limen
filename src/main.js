@@ -25,7 +25,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { fetchUsage } = require('./usage');
-const { nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed } = require('./schedule');
+const { FORCE_FLOOR_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed } = require('./schedule');
 const store = require('./state');
 const alerts = require('./alerts');
 const N = require('./notch');
@@ -508,8 +508,9 @@ function logState(data) {
  * the last real numbers stay on screen, marked stale, with the reason and
  * the retry time underneath.
  */
+/** @returns {Promise<boolean>} whether a request was actually made. */
 async function refresh(cause = 'schedule', force = false) {
-  if (inFlight) return;
+  if (inFlight) return false;
   // One gate, all six callers. Naming the caller is what turns a surprise
   // fetch from a mystery into a fact.
   if (!mayFetch({ now: Date.now(), nextAllowedAt, serverImposed, lastFetchAt, force })) {
@@ -519,7 +520,7 @@ async function refresh(cause = 'schedule', force = false) {
     // nothing holding the loop — the island would show one reading forever.
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => refresh('schedule'), wait);
-    return;
+    return false;
   }
   inFlight = true;
   lastFetchAt = Date.now();
@@ -574,6 +575,12 @@ async function refresh(cause = 'schedule', force = false) {
     // Only when something is wrong with the credentials, and only then: the
     // probe is cheap but it is still a subprocess, and there is no reason to
     // run one every two minutes to be told again that all is well.
+    // A credential problem that fixed itself — in a terminal, by a refresh,
+    // by anything — takes its follow-up state with it. Left standing, the
+    // next problem days later opened Terminal on the FIRST click, from a
+    // button that had not named Terminal in this episode at all.
+    if (!credProblem()) pendingTerminal = false;
+
     if (!data.ok && VM.isCredentialProblem(data.reason)) {
       const bin = await resolveClaude();
       lastData.accountLive = bin ? await claudeLoggedIn(bin) : null;
@@ -722,7 +729,18 @@ function usableBinary(p) {
  * is a lot of someone else's code to run in order to locate one binary, so
  * it is now the last resort rather than the first move.
  */
+// Resolving asks the user's shell in the worst case, which runs their
+// startup files as our child. Doing that once per launch is a lookup; doing
+// it on the poll loop — which is where the credential probe put it — is a
+// standing invitation to run someone else's code every two minutes.
+let claudeBinary;
 async function resolveClaude() {
+  if (claudeBinary !== undefined && usableBinary(claudeBinary)) return claudeBinary;
+  claudeBinary = await findClaude();
+  return claudeBinary;
+}
+
+async function findClaude() {
   const known = WELL_KNOWN_CLAUDE.find(usableBinary);
   if (known) return known;
 
@@ -979,6 +997,9 @@ function decorate(d) {
   d.primeNote = primeNote();
   d.canPrime = Boolean(d.ok) && !sessionOpen();
   d.accountLive = lastData.accountLive;
+  // The sign-in nudge costs a five-hour window unless one is already open,
+  // and the button says so — which it can only do if it is told.
+  d.sessionOpen = sessionOpen();
   d.wingInfo = config.wingInfo;
   d.wingSources = config.wingSources;
   d.prime = {
@@ -1072,6 +1093,11 @@ async function signInViaClaudeCode() {
       trace('sign-in: Terminal already offered, opening it');
       pendingTerminal = false;
       openLoginTerminal(bin);
+      // Back to a pressable button. Every entry here sets 'working', and
+      // this path returns without another status, which left the panel
+      // disabled on "Signing in…" — with no way back if the browser login
+      // was abandoned.
+      sendSignIn(null);
       return;
     }
 
@@ -1093,7 +1119,17 @@ async function signInViaClaudeCode() {
           resolve();
         });
       });
-      await refresh('sign-in', true);
+      // A forced refresh is still floored five seconds off the last one, and
+      // a hover a moment before the click can eat that. Held, it returns
+      // false and leaves the OLD reason standing — which this code would
+      // otherwise read as "the nudge failed" and send someone to Terminal to
+      // fix a token that had just been fixed.
+      if (!await refresh('sign-in', true)) {
+        const wait = Math.max(0, lastFetchAt + FORCE_FLOOR_MS - Date.now()) + 250;
+        trace(`sign-in: refresh held, waiting ${Math.round(wait / 1000)} s for the floor`);
+        await new Promise((r) => setTimeout(r, wait));
+        await refresh('sign-in', true);
+      }
       if (!credProblem()) {
         trace('sign-in: token refreshed, gauges live');
         pendingTerminal = false;
@@ -1109,6 +1145,7 @@ async function signInViaClaudeCode() {
     // button itself reads "Open Terminal to sign in", it has been asked.
     if (!nothingToRefresh) { pendingTerminal = true; return; }
     openLoginTerminal(bin);
+    sendSignIn(null);
   } finally {
     signingIn = false;
     machine = { ...machine, busy: false };

@@ -492,6 +492,11 @@ function renderPanel() {
     // transition rather than an instant paint.
     void rowsEl.offsetHeight;
   } else if (!gauges.length) {
+    // Nothing to redraw in the rows, but the BUTTON still changes: a signin
+    // message arrives with the same data, so the shape is identical and
+    // nothing was rebuilt. Returning here left the button frozen on its
+    // first label — which is the entire first-run sign-in experience.
+    syncSignIn(rowsEl, d.reason);
     return;
   }
 
@@ -508,7 +513,7 @@ function renderPanel() {
  * button was absent in exactly the situation it exists for.
  */
 function syncSignIn(rowsEl, reason) {
-  const existing = rowsEl.querySelector('.btn');
+  const existing = rowsEl.querySelector('.btn-signin');
   if (!VM.isCredentialProblem(reason)) {
     if (existing) existing.remove();
     return;
@@ -519,7 +524,8 @@ function syncSignIn(rowsEl, reason) {
   // forever on failure, or silently reset to its default label on success —
   // either way they never learned what happened. The wording lives in the
   // viewmodel, where the rule about what is actually fixable is tested.
-  const action = VM.signInAction(state.data.reason, status, state.data.accountLive);
+  const action = VM.signInAction(state.data.reason, status,
+    { accountLive: state.data.accountLive, windowOpen: state.data.sessionOpen });
   btn.textContent = action.label;
   btn.disabled = action.disabled;
 }
@@ -784,7 +790,10 @@ function syncPrime(rowsEl, d) {
 /** The one-click fix, right where the problem is reported. */
 function appendSignIn(parent) {
   const btn = document.createElement('button');
-  btn.className = 'btn';
+  // `btn-signin`, because `.btn` also matches the prime button's
+  // `btn btn-prime`: syncSignIn was finding it, relabelling it, or removing
+  // it on every render, and syncPrime was rebuilding it right after.
+  btn.className = 'btn btn-signin';
   btn.textContent = 'Sign in with Claude Code';
   btn.addEventListener('click', () => window.island.act('sign-in'));
   parent.appendChild(btn);
