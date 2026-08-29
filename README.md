@@ -48,7 +48,7 @@ prompt is asking on its behalf. Allow it once and it stays quiet. Limen sends
 your token nowhere but `api.anthropic.com`, keeps no copy of it, and has no
 analytics of any kind.
 
-Requires Claude Code signed in, on macOS 11 or later.
+Requires Claude Code signed in, on macOS 13 or later.
 
 An installed copy writes to `~/Library/Logs/Limen.log` &mdash; one line per
 state change, which is the first thing to read when it does something
