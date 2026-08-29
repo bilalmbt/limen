@@ -294,7 +294,12 @@ function renderWings() {
   const model = VM.wingsModel(state.data.gauges, wingSources());
   // Wings stay out while the panel is open: the band is part of the island,
   // and a band that shrinks when the panel morphs would break the shape.
-  const show = state.wings && Boolean(model);
+  //
+  // And they go quiet when the account cannot be read at all. The chips are
+  // the ambient claim "this is your usage right now" — made in the menu bar,
+  // with no room for a caveat — so when the app is signed out they state a
+  // figure from whenever it last worked. The tray says "sign in" instead.
+  const show = state.wings && Boolean(model) && VM.numbersAreCurrent(state.data);
   wingsEl.classList.toggle('off', !show);
   // With the panel flush below, the band's outer corners go square: the
   // surface continues downward, and a rounded corner would bite the seam.
@@ -432,6 +437,10 @@ function renderPanel() {
   panel.querySelector('.plan').textContent = typeof d.plan === 'string' ? d.plan : '';
   const stale = d.stale === true || d.ok === false;
   panel.classList.toggle('stale', stale);
+  // Dimmed, and labelled by the header's "as of", when the figures are from
+  // an account the app can no longer read. They stay — they are the last
+  // thing anyone knew — but they stop presenting themselves as now.
+  panel.classList.toggle('unreadable', !VM.numbersAreCurrent(d));
 
   const when = d.fetchedAt
     ? new Date(d.fetchedAt).toLocaleTimeString(locale(), VM.timeOptions(timeFormat()))

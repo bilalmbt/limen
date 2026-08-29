@@ -104,6 +104,22 @@
     return r >= 10 ? `full in ~${h} h ${r} min` : `full in ~${h} h`;
   }
 
+  /**
+   * May the numbers be shown as though they were current?
+   *
+   * A transient failure — no network, a throttle — leaves the last reading
+   * true and about to be true again, so it stays on screen with the reason
+   * beneath it. A credential failure is different in kind: the app cannot
+   * read the account at all, the figures are from whenever it last could,
+   * and nothing about "3%" looks fifteen hours old. Presented plainly beside
+   * "Claude Code isn't signed in", they read as a contradiction — which is
+   * exactly what a person reports when they see it.
+   */
+  function numbersAreCurrent(data) {
+    if (!data) return false;
+    return !isCredentialProblem(data.reason);
+  }
+
   /** Reasons a fresh Claude Code sign-in would fix. */
   function isCredentialProblem(reason) {
     return reason === 'no-credentials' || reason === 'token-expired' || reason === 'unauthorized';
@@ -332,6 +348,7 @@
 
   return {
     tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine, signInAction, trayTitle,
+    numbersAreCurrent,
     wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem
   };
 }));

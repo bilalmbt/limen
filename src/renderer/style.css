@@ -477,6 +477,12 @@ html, body {
    had touched looked used. It carries min-width alone, because a bar falling
    back to 0% loses this class and must still glide rather than snap. */
 .bar > i.some { min-width: 5px; }
+/* The account cannot be read, so these figures are from whenever it last
+   could. They are worth keeping — nobody has better — but they must not look
+   like a live reading sitting beside "Claude Code isn't signed in". */
+#panel.unreadable .row { opacity: 0.45; }
+#panel.unreadable .row-value { font-weight: 600; }
+
 .row-reset {
   font-size: var(--t-meta);
   color: var(--ink-faint);
@@ -505,7 +511,13 @@ html, body {
    --ink-dim and pushed the small print under WCAG AA, in the one state
    where reading the small print matters most. */
 #panel.stale .bar,
-#panel.stale .row-reset { opacity: 0.7; }
+#panel.stale /* The account cannot be read, so these figures are from whenever it last
+   could. They are worth keeping — nobody has better — but they must not look
+   like a live reading sitting beside "Claude Code isn't signed in". */
+#panel.unreadable .row { opacity: 0.45; }
+#panel.unreadable .row-value { font-weight: 600; }
+
+.row-reset { opacity: 0.7; }
 
 /* Threshold marks: where the alerts sit, and which have been crossed. A
    peek lasts 4 seconds once; without residue a missed warning never

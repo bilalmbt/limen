@@ -334,6 +334,20 @@ test('a failed session prime does not relabel the sign-in button', () => {
     'Sign in with Claude Code');
 });
 
+test('numbers are only current when the account can actually be read', () => {
+  // The panel said "Claude Code isn't signed in" directly above "Session 3%"
+  // — a figure fifteen hours old, with nothing about it looking old. A
+  // transient failure is different in kind: that reading was true and is
+  // about to be true again, so it stands.
+  assert.strictEqual(VM.numbersAreCurrent({ reason: 'no-credentials' }), false);
+  assert.strictEqual(VM.numbersAreCurrent({ reason: 'token-expired' }), false);
+  assert.strictEqual(VM.numbersAreCurrent({ reason: 'unauthorized' }), false);
+  assert.strictEqual(VM.numbersAreCurrent({ reason: 'network' }), true, 'transient: still true');
+  assert.strictEqual(VM.numbersAreCurrent({ reason: 'rate-limited' }), true);
+  assert.strictEqual(VM.numbersAreCurrent({ reason: null }), true);
+  assert.strictEqual(VM.numbersAreCurrent(null), false, 'nothing at all is not current');
+});
+
 test('the menu bar does not show a number the app cannot vouch for', () => {
   const g = { percent: 73 };
   assert.strictEqual(VM.trayTitle(g, {}), '73%');
