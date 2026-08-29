@@ -160,17 +160,13 @@ function render() {
 }
 
 /**
- * Tell the main process where the island actually is, so it can take the
- * mouse over those pixels and nowhere else. Measured, never assumed: the
- * panel is sized from the wings band and its height is content-driven, so
- * any rect derived from constants drifts from what is drawn — and the gap
- * is a transparent window that silently eats clicks.
- *
- * The wings are deliberately excluded. They sit in the menu-bar strip, and
- * taking the mouse there would intercept clicks meant for menu titles.
- */
-/**
  * Where the island actually is, as a LIST of rectangles.
+ *
+ * Measured, never assumed: the panel is sized from the wings band and its
+ * height is content-driven, so any rect derived from constants drifts from
+ * what is drawn — and the gap is a transparent window that silently eats
+ * clicks. The wings ARE included: they are drawn pixels of ours, and a click
+ * on a chip opens the panel.
  *
  * Not a bounding box: with the wings off, one box around the notch and the
  * wider panel below it would also cover the empty menu-bar strip either side

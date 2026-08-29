@@ -63,6 +63,7 @@ function dueSlot({ times, days, weekday, minutesNow, lastSlot = null,
 
   const slots = slotsFor(times, days, weekday);
   let due = null;
+  let closest = Infinity;
   for (const slot of slots) {
     // The grace wraps past midnight: a 23:55 slot checked at 00:05 is five
     // minutes late, not fourteen hours early, and used to be skipped
@@ -71,6 +72,11 @@ function dueSlot({ times, days, weekday, minutesNow, lastSlot = null,
     const since = minutesNow >= slot ? minutesNow - slot : minutesNow + 1440 - slot;
     if (since > graceMin) continue;
     if (lastSlot !== null && lastSlot >= slot) continue;   // already done
+    // The most recently passed slot, not the last in ascending order: with
+    // the grace wrapping past midnight, a 23:55 slot is still due at 00:05
+    // and would otherwise outrank a 00:05 slot standing right beside it.
+    if (since >= closest) continue;
+    closest = since;
     due = slot;
   }
   return due;
@@ -129,6 +135,19 @@ function stepTime(time, field, delta) {
   return formatSlot(next);
 }
 
+/**
+ * The key that answers "have I already primed this slot today".
+ *
+ * A DATE, never a weekday index: an index comes round every seven days, so
+ * a Monday-only schedule was "already done" every Monday after the first.
+ * It lives here, next to dueSlot's `weekday`, because one variable once did
+ * both jobs in the caller and fixing one silently broke the other — days
+ * were then matched against a date string and nothing ever fired.
+ */
+function dayKey(date) {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
 /** Turn one weekday on or off, kept sorted so the file reads the same way twice. */
 function toggleDay(days, day) {
   if (!Number.isInteger(day) || day < 0 || day > 6) return [...(days || [])];
@@ -146,6 +165,7 @@ function formatSlot(minutes) {
 }
 
 module.exports = {
+  dayKey,
   parseTime, slotsFor, dueSlot, nextSlot, formatSlot, resolveMode,
   stepTime, toggleDay, DEFAULT_GRACE_MIN
 };

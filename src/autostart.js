@@ -48,11 +48,6 @@ function domain() {
 }
 
 /**
- * @returns {boolean|null} true/false when a service is registered, and null
- * when none is — an unknown state, which the menu shows as disabled rather
- * than as a lie in either direction.
- */
-/**
  * Read one service out of `launchctl print-disabled`.
  *
  * The output format changed. macOS 11 and earlier printed
@@ -75,6 +70,11 @@ function parseDisabled(output, label) {
   return null;   // a third format we have never seen: say so rather than guess
 }
 
+/**
+ * @returns {boolean|null} true/false when the answer is knowable, and null
+ * when it is not — an unknown state, which the menu shows as disabled rather
+ * than as a lie in either direction.
+ */
 function isEnabled() {
   if (process.platform !== 'darwin') return null;
   if (packaged()) {

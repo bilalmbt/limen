@@ -178,6 +178,24 @@ test('unticking every day stops auto-open, rather than starting it daily', () =>
   }
 });
 
+test('dueSlot fails closed if given anything but a weekday number', () => {
+  // The caller once passed a date string here, because one variable was
+  // keying lastPrime AND selecting the days. Auto-open then never fired,
+  // while the panel and tray went on advertising the schedule.
+  const args = { times: ['08:00'], days: [1, 2, 3, 4, 5], minutesNow: 482 };
+  assert.strictEqual(P.dueSlot({ ...args, weekday: 1 }), 480, 'a weekday index works');
+  assert.strictEqual(P.dueSlot({ ...args, weekday: '2026-8-31' }), null, 'a date string does not');
+  assert.strictEqual(P.dueSlot({ ...args, weekday: undefined }), null);
+});
+
+test('dayKey is a date, and two same-weekday dates differ', () => {
+  const monday = new Date('2026-08-31T08:02:00');
+  const nextMonday = new Date('2026-09-07T08:02:00');
+  assert.strictEqual(P.dayKey(monday), '2026-8-31');
+  assert.notStrictEqual(P.dayKey(monday), P.dayKey(nextMonday));
+  assert.strictEqual(monday.getDay(), nextMonday.getDay(), 'the trap the date key exists to avoid');
+});
+
 test('a slot is primed once per DATE, not once per weekday', () => {
   // lastPrime was keyed by getDay(), which repeats every seven days: a
   // Monday-only schedule primed once and was then "already done" every

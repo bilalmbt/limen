@@ -56,18 +56,6 @@ function primeArgs() {
 }
 
 /**
- * The flags that keep a headless Claude Code run to itself.
- *
- * Shared, because they were not. The priming path had them and the sign-in
- * path did not, so clicking "Sign in with Claude Code" started the user's
- * ENTIRE Claude Code environment — every MCP server they have configured —
- * as a child of this app. macOS attributes a child's file access to the
- * responsible process, so their servers reaching for Downloads or the media
- * library produced prompts that said "Limen would like to access…", which
- * is precisely the kind of thing that makes a small widget look like
- * spyware.
- */
-/**
  * How long to wait on a headless Claude Code run before deciding it will not
  * answer.
  *
@@ -79,6 +67,16 @@ function primeArgs() {
  */
 const NUDGE_TIMEOUT_MS = 20000;
 
+/**
+ * The flags that keep a headless Claude Code run to itself.
+ *
+ * Shared, because they were not. The priming path had them and the sign-in
+ * path did not, so clicking "Sign in with Claude Code" started the user's
+ * ENTIRE Claude Code environment — every MCP server they have configured —
+ * as a child of this app, and macOS attributes a child's file access to the
+ * responsible process. Their servers reaching for Downloads or the media
+ * library produced prompts saying "Limen would like to access…".
+ */
 const MINIMAL_CLAUDE_ARGS = [
   '--output-format', 'text',
   '--no-session-persistence',   // don't litter the user's session history
@@ -534,8 +532,11 @@ function logState(data) {
  * Ask once, then schedule the next call. A failure never wipes the display:
  * the last real numbers stay on screen, marked stale, with the reason and
  * the retry time underneath.
+ *
+ * @returns {Promise<boolean>} whether a request was actually made — a held
+ * or already-running call returns false, which callers must not read as a
+ * failed fetch.
  */
-/** @returns {Promise<boolean>} whether a request was actually made. */
 async function refresh(cause = 'schedule', force = false) {
   if (inFlight) return false;
   // One gate, all six callers. Naming the caller is what turns a surprise
@@ -546,7 +547,11 @@ async function refresh(cause = 'schedule', force = false) {
   // path and the refresh button together. Stamps that cannot be reached
   // from here did not come from here.
   const now0 = Date.now();
-  if (nextAllowedAt > now0 + MAX_DELAY_MS) {
+  // A day, not MAX_DELAY_MS. Our own backoff never exceeds fifteen minutes,
+  // but a server Retry-After is deliberately uncapped — so this guard used
+  // to read a legitimate "come back in an hour" as a broken clock, discard
+  // it, and hammer the endpoint that had just asked for room.
+  if (nextAllowedAt > now0 + CLOCK_SKEW_MS) {
     trace('clock moved backwards: re-arming the refresh loop');
     nextAllowedAt = 0;
   }
@@ -740,7 +745,15 @@ function queuePeek(item) {
 }
 
 function drainPeeks() {
-  if (!canShowIsland()) { peekQueue.length = 0; peekShowing = false; return; }
+  if (!canShowIsland()) {
+    // No island to show a peek on, but a notification needs no island — and
+    // the ledger has already recorded these as spoken, so dropping them
+    // drops them for the whole reset window.
+    for (const queued of peekQueue) notify(queued);
+    peekQueue.length = 0;
+    peekShowing = false;
+    return;
+  }
   const item = peekQueue.shift();
   clearTimeout(peekTimer);
   peekTimer = null;
@@ -863,6 +876,9 @@ function claudeLoggedIn(bin) {
 // Asking Claude Code whether the account is live, at a pace that suits an
 // answer which changes when a person signs in or out — not every poll.
 const ACCOUNT_PROBE_MS = 10 * 60 * 1000;
+
+/** Further ahead than any legitimate wait: past this, the clock moved. */
+const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 let accountProbe = { reason: null, at: 0, live: undefined };
 
 let signingIn = false;
@@ -934,14 +950,19 @@ async function checkPrime() {
   // so a single-day schedule primed once and never again — and any schedule
   // whose next run landed on the same weekday (a machine asleep between)
   // died the same way.
-  const today = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  // Two different questions, and they were sharing one variable. The DATE
+  // answers "have I already primed this slot" — a weekday index comes round
+  // every seven days, which is what killed a single-day schedule. The
+  // WEEKDAY answers "is today one of the chosen days", and passing it a date
+  // string meant days.includes() never matched and nothing ever fired.
+  const dayKey = prime.dayKey(now);
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const slot = prime.dueSlot({
     times: config.primeAt,
     days: config.primeDays,
-    weekday: today,
+    weekday: now.getDay(),
     minutesNow,
-    lastSlot: lastPrime.day === today ? lastPrime.slot : null,
+    lastSlot: lastPrime.day === dayKey ? lastPrime.slot : null,
     sessionOpen: sessionOpen()
   });
 
@@ -955,7 +976,7 @@ async function checkPrime() {
   if (slot !== null) {
     // Recorded BEFORE the attempt: a crash mid-send must not leave the slot
     // armed to fire again on the next tick.
-    lastPrime = { day: today, slot };
+    lastPrime = { day: dayKey, slot };
     store.save({ lastPrime });
   }
   const what = slot !== null ? `prime ${prime.formatSlot(slot)}` : 'prime chain';
@@ -1293,12 +1314,6 @@ function updateTray() {
   buildMenu();
 }
 
-/** Rebuilding a context menu while it is open dismisses it under the cursor. */
-/**
- * How long until a forced refresh would be allowed, as words, or '' if it
- * would go through right now. The gate lives in schedule.js; asking it the
- * question here is what lets the menu stop offering what it cannot do.
- */
 /**
  * The login item's state, cached.
  *
@@ -1327,6 +1342,11 @@ function canShowIsland() {
   return Boolean(islandDisplay());
 }
 
+/**
+ * How long until a forced refresh would be allowed, as words, or '' if it
+ * would go through right now. The gate lives in schedule.js; asking it the
+ * question here is what lets the menu stop offering what it cannot do.
+ */
 function refreshHeldFor() {
   if (inFlight) return 'a moment';
   const now = Date.now();
@@ -1335,6 +1355,7 @@ function refreshHeldFor() {
   return mins > 1 ? `${mins} min` : 'a moment';
 }
 
+/** Rebuilding a context menu while it is open dismisses it under the cursor. */
 let menuSignature = null;
 function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;

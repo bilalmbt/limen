@@ -60,7 +60,10 @@ function syncPrime(rowsEl, d, signin) {
   const show = (d.canPrime || busy) && !VM.isCredentialProblem(d.reason);
   if (!show) { if (existing) existing.remove(); return; }
   const btn = existing || rowsEl.appendChild(makeEl('btn btn-prime'));
-  btn.textContent = busy ? 'Opening a session window…' : 'Open a session window';
+  btn.textContent = busy ? 'Opening a window…'
+    : signin === 'prime-failed' ? 'Could not open — try again'
+    : 'Open a session window';
+  btn.disabled = busy;
 }
 
 const names = (rows) => rows.children.map((c) => c.className);
@@ -123,6 +126,22 @@ test('a prime in flight does not remove the sign-in button', () => {
   syncPrime(rows, { canPrime: false, reason: 'token-expired' }, 'priming');
   assert.deepStrictEqual(names(rows), ['btn btn-signin'],
     'a credential problem outranks a prime: the prime cannot work anyway');
+});
+
+test('the prime button reports its own outcomes, and locks while working', () => {
+  // These labels are transcribed from island.js, so they are also the thing
+  // most likely to drift. Asserting them is what makes the transcription a
+  // test rather than a copy.
+  const rows = makeEl('rows');
+  const live = { canPrime: true, reason: null };
+  syncPrime(rows, live, null);
+  assert.strictEqual(rows.children[0].textContent, 'Open a session window');
+  syncPrime(rows, live, 'priming');
+  assert.strictEqual(rows.children[0].textContent, 'Opening a window…');
+  assert.strictEqual(rows.children[0].disabled, true, 'no second click while one runs');
+  syncPrime(rows, live, 'prime-failed');
+  assert.strictEqual(rows.children[0].textContent, 'Could not open — try again');
+  assert.strictEqual(rows.children[0].disabled, false);
 });
 
 console.log(`\n${passed} renderer tests passed`);

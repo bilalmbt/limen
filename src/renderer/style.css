@@ -464,23 +464,19 @@ html, body {
   margin-bottom: 5px;
 }
 /* Width, not scaleX: scaling would squash the rounded cap. The bar grows
-   into place on entrance and glides between values on refresh. min-width
-   keeps a nonzero quota visibly nonzero — below ~2.5% the two caps consumed
-   the whole fill and 1% rendered identically to 3%. */
+   into place on entrance and glides between values on refresh. */
 .bar > i {
   display: block;
   height: 100%;
-  /* Only once there is something to show: at 0% the floor drew the same
-     5px sliver as 1%, so a quota nobody had touched looked used. */
-  min-width: 0;
-}
-/* The floor that keeps a nonzero quota visibly nonzero, applied only when
-   the quota IS nonzero. */
-.bar > i.some {
-  min-width: 5px;
   border-radius: 99px;
   transition: width 720ms var(--calm), background-color 420ms ease;
 }
+/* The floor that keeps a nonzero quota visibly nonzero — below ~2.5% the two
+   caps consumed the whole fill and 1% rendered identically to 3%. Only when
+   the quota IS nonzero: at 0% it drew that same sliver, so a quota nobody
+   had touched looked used. It carries min-width alone, because a bar falling
+   back to 0% loses this class and must still glide rather than snap. */
+.bar > i.some { min-width: 5px; }
 .row-reset {
   font-size: var(--t-meta);
   color: var(--ink-faint);
