@@ -12,7 +12,8 @@
     "test": "node test/paths.test.js && node test/notch.test.js && node test/trend.test.js && node test/prime.test.js && node test/config.test.js && node test/island-state.test.js && node test/viewmodel.test.js && node test/usage.test.js && node test/schedule.test.js && node test/alerts.test.js && node test/state.test.js",
     "dist": "electron-builder --mac",
     "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
-    "notarize": "bash scripts/notarize.sh"
+    "notarize": "bash scripts/notarize.sh",
+    "verify:release": "bash scripts/verify-release.sh"
   },
   "author": "bmo.dev",
   "license": "MIT",
@@ -23,7 +24,7 @@
   "build": {
     "appId": "io.moobytes.limen",
     "productName": "Limen",
-    "copyright": "© 2026 @billybowss",
+    "copyright": "\u00a9 2026 @billybowss",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -51,7 +52,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "LSUIElement": 1,
-        "NSHumanReadableCopyright": "© 2026 @billybowss · MIT"
+        "NSHumanReadableCopyright": "\u00a9 2026 @billybowss \u00b7 MIT"
       },
       "notarize": false
     },

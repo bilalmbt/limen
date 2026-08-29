@@ -28,7 +28,19 @@ exports.default = async function afterSign(context) {
   try {
     execFileSync('xcrun', ['notarytool', 'history', '--keychain-profile', PROFILE], { stdio: 'ignore' });
   } catch (_) {
-    console.log(`  • notarization skipped  reason=no keychain profile "${PROFILE}"`);
+    // Loud on purpose. Skipping is correct for a contributor without
+    // credentials, but a quiet skip once produced a release candidate that
+    // was signed, unnotarized, and indistinguishable from a good one until
+    // Gatekeeper saw it on someone else's Mac.
+    console.log('');
+    console.log('  ******************************************************************');
+    console.log(`  *  NOT NOTARIZED — no keychain profile "${PROFILE}"`);
+    console.log('  *  This build will be refused by Gatekeeper on other Macs.');
+    console.log('  *  Fine for local testing. Do not release it.');
+    console.log('  *  Fix: xcrun notarytool store-credentials "' + PROFILE + '" \\');
+    console.log('  *         --apple-id <apple-id> --team-id GX922H5C5A');
+    console.log('  ******************************************************************');
+    console.log('');
     return;
   }
 
