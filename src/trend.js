@@ -23,7 +23,22 @@ const WINDOW_MS = 30 * 60 * 1000;   // how far back a rate looks
 const MIN_SAMPLES = 3;              // fewer than this is a coincidence
 const MIN_SPAN_MS = 5 * 60 * 1000;  // and so is a rate over a two-minute gap
 const MIN_RATE = 0.05;              // %/min — below this, call it flat
-const MAX_SAMPLES = 2016;           // 7 days at one reading per 2 minutes
+/**
+ * The endpoint returns WHOLE percentages, so the smallest change it can
+ * report is one point — and one point is also what a rounding boundary
+ * produces when nothing has happened. Over the five-minute minimum span, a
+ * single step is 0.2 %/min, four times MIN_RATE, so the flat-rate floor
+ * could not see it: 49,49,49,50 over six minutes produced "full in ~5 h"
+ * from noise. Below this many points of rise there is no signal to read.
+ */
+const MIN_RISE = 2;
+/**
+ * Only the last WINDOW_MS is ever read, which at the fastest cadence the
+ * config allows (30 s) is 60 samples. The cap was 2016 — described as "7
+ * days" and actually 2.8 — so a 300 KB file was re-read, re-serialised and
+ * re-written every two minutes to support a thirty-minute question.
+ */
+const MAX_SAMPLES = 120;
 
 /**
  * Append a reading, newest last, dropping anything past the cap.
@@ -62,7 +77,9 @@ function rateFor(history, gaugeId, now, windowMs = WINDOW_MS) {
     if (samples[i].p[gaugeId] < samples[i - 1].p[gaugeId]) return null;   // reset
   }
 
-  const rate = (last.p[gaugeId] - first.p[gaugeId]) / (span / 60000);
+  const rise = last.p[gaugeId] - first.p[gaugeId];
+  if (rise < MIN_RISE) return null;   // one rounding step is not a trend
+  const rate = rise / (span / 60000);
   return rate >= MIN_RATE ? rate : null;
 }
 

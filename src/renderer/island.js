@@ -485,6 +485,13 @@ function renderPanel() {
   // existing nodes so bars can transition to their new values and a running
   // entrance is never yanked out from under itself.
   const rebuilt = shape !== renderedIds;
+  // Rebuilding rows inside a panel still wearing `.entering` restarts their
+  // stagger from zero while the header carries on, and the class is then
+  // pulled by the timer from the original open — cutting the replay short.
+  // The entrance belongs to the opening, not to every reshuffle within it.
+  if (rebuilt && panel.classList.contains('entering') && renderedIds !== null) {
+    panel.classList.remove('entering');
+  }
   if (rebuilt) {
     renderedIds = shape;
     rowsEl.textContent = '';
@@ -605,7 +612,10 @@ function fillRow(row, gauge, thresholds) {
   // non-colour channel for the thresholds.
   for (const old of bar.querySelectorAll('.tick')) old.remove();
   for (const level of thresholds || []) {
-    if (level <= 0 || level >= 100) continue;
+    // 100 is a mark the config accepts and the alert ledger honours, so the
+    // track has to show it: an alert whose threshold is invisible reads as
+    // an alert with no cause. Only nonsense outside the scale is skipped.
+    if (level <= 0 || level > 100) continue;
     const tick = document.createElement('span');
     tick.className = gauge.percent >= level ? 'tick crossed' : 'tick';
     tick.style.left = `${level}%`;

@@ -69,6 +69,20 @@ const MAX_SOURCES = 3;
 function validTime(t) { return typeof t === 'string' && TIME_RE.test(t.trim()); }
 
 /**
+ * Keep the valid entries — unless that would empty a list the reader meant
+ * to fill, in which case say so and let the default stand. An empty list is
+ * a real setting here ("never alert", "never auto-open"), so arriving at one
+ * by throwing away everything the file said is the one outcome that is both
+ * wrong and silent.
+ */
+function keptOrRejected(v, ok) {
+  if (!Array.isArray(v)) return undefined;
+  const kept = v.filter(ok);
+  if (!kept.length && v.length) return undefined;   // rejected, and reported
+  return kept;
+}
+
+/**
  * A source list the band can actually draw: known names, no repeats, in the
  * canonical order, at most three. Ordered here rather than by click order so
  * the chips never swap sides between one session and the next.
@@ -113,16 +127,17 @@ function clean(key, v) {
       return Number.isFinite(v) && v >= 30 && v <= 3600 ? v : undefined;
     case 'notchWidth':
       return Number.isFinite(v) && v > 0 ? Math.min(v, 600) : undefined;
+    // The three list settings share a trap: filtering an all-invalid list
+    // leaves an EMPTY one, which is itself a valid and meaningful setting —
+    // no alerts, no auto-open, no days. `alertAt: ["80","95"]` in a
+    // hand-edited file silently turned alerts off and reported nothing.
+    // An empty result from a non-empty input is a rejection, not a value.
     case 'alertAt':
-      return Array.isArray(v)
-        ? v.filter((n) => Number.isFinite(n) && n > 0 && n <= 100)
-        : undefined;
+      return keptOrRejected(v, (n) => Number.isFinite(n) && n > 0 && n <= 100);
     case 'primeAt':
-      return Array.isArray(v) ? v.filter(validTime) : undefined;
+      return keptOrRejected(v, validTime);
     case 'primeDays':
-      return Array.isArray(v)
-        ? v.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
-        : undefined;
+      return keptOrRejected(v, (d) => Number.isInteger(d) && d >= 0 && d <= 6);
     case 'wings':
     case 'osNotifications':
     case 'primeChain':

@@ -76,4 +76,12 @@ test('a merge still keeps every key the app does use', () => {
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });
+test('a save leaves no temp file behind, and replaces atomically', () => {
+  store.save({ failures: 3 });
+  const dir = path.dirname(process.env.ISLAND_STATE_FILE);
+  const strays = fs.readdirSync(dir).filter((f) => f.endsWith('.tmp'));
+  assert.deepStrictEqual(strays, [], 'the temp file is renamed, not left');
+  assert.strictEqual(store.read().failures, 3, 'and the content is there');
+});
+
 console.log(`\n${passed} state tests passed`);

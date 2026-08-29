@@ -301,15 +301,24 @@ html, body {
 #panel.entering .row,
 #panel.entering #ceiling,
 #panel.entering .empty-note,
+#panel.entering #prime,
+#panel.entering #primebar,
 #panel.entering .btn {
   animation: islandContentIn 360ms var(--calm) both;
 }
+/* Top to bottom, in DOM order, which is the order the eye reads them. The
+   button used to be pinned at 170ms — ahead of the rows it sits below — and
+   #primebar, the heaviest block in the panel, was in none of these
+   selectors at all, so it was fully opaque from the first frame while
+   everything above it faded in. */
 #panel.entering .head { animation-delay: 40ms; }
 #panel.entering #stale { animation-delay: 75ms; }
 #panel.entering .empty-note { animation-delay: 90ms; }
-#panel.entering .btn { animation-delay: 170ms; }
-#panel.entering #ceiling { animation-delay: 240ms; }
 #panel.entering .row { animation-delay: calc(85ms + var(--i, 0) * 55ms); }
+#panel.entering #ceiling { animation-delay: 300ms; }
+#panel.entering .btn { animation-delay: 330ms; }
+#panel.entering #prime { animation-delay: 350ms; }
+#panel.entering #primebar { animation-delay: 380ms; }
 
 @media (prefers-reduced-motion: reduce) {
   #peek, #panel, .wing, #fakenotch, .bar > i { transition: opacity 0.1s linear; }
@@ -320,6 +329,7 @@ html, body {
   #panel.off, #panel:not(.off) { transform: none; }
   #panel.entering .head, #panel.entering #stale, #panel.entering .row,
   #panel.entering #ceiling, #panel.entering .empty-note,
+  #panel.entering #prime, #panel.entering #primebar,
   #panel.entering .btn { animation: none; }
 }
 

@@ -64,7 +64,12 @@ function dueSlot({ times, days, weekday, minutesNow, lastSlot = null,
   const slots = slotsFor(times, days, weekday);
   let due = null;
   for (const slot of slots) {
-    if (minutesNow < slot || minutesNow > slot + graceMin) continue;
+    // The grace wraps past midnight: a 23:55 slot checked at 00:05 is five
+    // minutes late, not fourteen hours early, and used to be skipped
+    // entirely — the one part of the day where the documented grace was not
+    // the grace you got.
+    const since = minutesNow >= slot ? minutesNow - slot : minutesNow + 1440 - slot;
+    if (since > graceMin) continue;
     if (lastSlot !== null && lastSlot >= slot) continue;   // already done
     due = slot;
   }

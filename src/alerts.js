@@ -31,10 +31,15 @@ function due(gauges, thresholds, ledger) {
     if (crossed === undefined) continue;
 
     const seen = next[gauge.id];
-    const sameWindow = seen && seen.window === (gauge.resetsAt || null);
+    // A gauge with no reset date has no window to be "the same" as, and
+    // keying them all to null meant it spoke once and then never again.
+    // Treated as a fresh window each time: an alert that repeats is a
+    // nuisance, one that never comes back is a silence you cannot diagnose.
+    const window = gauge.resetsAt || null;
+    const sameWindow = seen && window !== null && seen.window === window;
     if (sameWindow && seen.level >= crossed) continue;   // already said, stay quiet
 
-    next[gauge.id] = { window: gauge.resetsAt || null, level: crossed };
+    next[gauge.id] = { window, level: crossed };
     raise.push({ gauge, level: crossed });
   }
 

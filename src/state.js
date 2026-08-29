@@ -54,7 +54,16 @@ function write(state) {
       if (state[key] !== undefined) clean[key] = state[key];
     }
     fs.mkdirSync(DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(clean, null, 2));
+    // Write beside it, then rename. rename(2) is atomic within a filesystem,
+    // so a crash or a power cut leaves either the old file or the new one
+    // and never half of each. This file is rewritten on every successful
+    // poll, and a truncated one reads as {} — which would take the backoff,
+    // the alert ledger, the history and the last good reading with it, and
+    // restarting into a fresh backoff is the exact bug this file exists to
+    // prevent.
+    const tmp = `${FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(clean, null, 2));
+    fs.renameSync(tmp, FILE);
     return true;
   } catch (_) {
     return false;    // a read-only home must not take the widget down

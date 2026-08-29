@@ -25,7 +25,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { fetchUsage } = require('./usage');
-const { FORCE_FLOOR_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed } = require('./schedule');
+const {
+  FORCE_FLOOR_MS, MAX_DELAY_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed
+} = require('./schedule');
 const store = require('./state');
 const alerts = require('./alerts');
 const N = require('./notch');
@@ -247,6 +249,17 @@ function onDisplaysChanged() {
     return;
   }
   trace(`displays changed: moving to ${display.id}`);
+  // A panel or peek that was open on the display that just went away should
+  // not reappear on the one that replaced it, with the cursor nowhere near
+  // it. Only the chips survive a display change, because only they are
+  // meant to be on screen without a cursor.
+  if (machine.state !== I.DORMANT) {
+    machine = { ...machine, state: I.DORMANT, dwellSince: null, hideAt: null, peekGaugeId: null };
+    if (ready && win && !win.isDestroyed()) {
+      win.webContents.send('panel', false);
+      win.webContents.send('peek', null);
+    }
+  }
   placeOn(display);
   sendGeometry();
   // A display that came back must bring the wings (or an open state) with
@@ -316,8 +329,14 @@ function createWindow(display) {
   win.on('closed', () => {
     win = null;
     ready = false;
+    // All four, as before-quit does. Two were missing here, so a peek could
+    // still drain — and raise an OS notification — with no island to show
+    // it on.
     clearInterval(pollTimer);
     clearTimeout(refreshTimer);
+    clearTimeout(hideTimer);
+    clearTimeout(peekTimer);
+    clearTimeout(primeTimer);
   });
   win.webContents.on('render-process-gone', (_e, d) => trace(`renderer gone: ${d.reason}`));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -521,6 +540,18 @@ async function refresh(cause = 'schedule', force = false) {
   if (inFlight) return false;
   // One gate, all six callers. Naming the caller is what turns a surprise
   // fetch from a mystery into a fact.
+  // A backward clock correction (a Mac that booted with a wrong future
+  // clock, a restored snapshot) leaves both stamps in the future, and every
+  // gate then refuses until real time catches up — the timer, the force
+  // path and the refresh button together. Stamps that cannot be reached
+  // from here did not come from here.
+  const now0 = Date.now();
+  if (nextAllowedAt > now0 + MAX_DELAY_MS) {
+    trace('clock moved backwards: re-arming the refresh loop');
+    nextAllowedAt = 0;
+  }
+  if (lastFetchAt > now0) lastFetchAt = 0;
+
   if (!mayFetch({ now: Date.now(), nextAllowedAt, serverImposed, lastFetchAt, force })) {
     const wait = Math.max(1000, nextAllowedAt - Date.now()) || 60000;  // || also catches NaN
     trace(`refresh(${cause}) held: ${Math.round(wait / 1000)} s left`);
@@ -871,10 +902,24 @@ function sessionEndsAt() {
 }
 
 /**
- * Open a fresh window at a scheduled time, by sending one short message
- * through Claude Code. Checked on the refresh cadence, which is finer than
- * the grace window, so a slot cannot be stepped over.
+ * The prime schedule, on a clock of its own.
+ *
+ * It used to be checked from the refresh loop, and only from there.
+ * refreshSeconds can be set as high as an hour, while a slot's grace is
+ * fifteen minutes — so at the coarse end a slot was stepped over three times
+ * in four. A timer of its own, at the grace window's own pace, so the two no
+ * longer depend on a setting that knows nothing about them. The refresh loop
+ * still calls checkPrime too — it has just found out whether a window is
+ * open, which is the other thing the decision needs.
  */
+let primeTimer = null;
+function armPrimeTimer() {
+  clearTimeout(primeTimer);
+  const active = config.primeChain || config.primeAt.length;
+  if (!active) return;
+  primeTimer = setTimeout(() => { checkPrime(); armPrimeTimer(); }, 5 * 60 * 1000);
+}
+
 async function checkPrime() {
   if (priming) return;
   if (!config.primeAt.length && !config.primeChain) return;
@@ -996,6 +1041,7 @@ function setPrimeMode(mode) {
   trace(chain ? 'auto-open: whenever the current window ends'
     : times.length ? `auto-open: ${times[0]}`
     : 'auto-open: off');
+  armPrimeTimer();
   buildMenu(true);
   pushUsage();
   if (chain || times.length) checkPrime();
@@ -1036,6 +1082,7 @@ function setPrimeTimeValue(time) {
   saveConfig({ primeAt: config.primeAt, primeChain: false });
   store.save({ lastPrime });
   trace(`auto-open: ${time}`);
+  armPrimeTimer();
   buildMenu(true);
   pushUsage();
   checkPrime();
@@ -1858,6 +1905,7 @@ app.whenReady().then(() => {
   }
 
   createTray();
+  armPrimeTimer();
   // Restarting while rate limited must not cost an immediate extra hit: the
   // restored failure count re-enters the backoff where it left off. But only
   // for failures the endpoint actually saw — a stale count from a local
@@ -1974,5 +2022,6 @@ app.on('before-quit', () => {
   clearTimeout(refreshTimer);
   clearTimeout(hideTimer);
   clearTimeout(peekTimer);
+  clearTimeout(primeTimer);
   globalShortcut.unregisterAll();
 });
