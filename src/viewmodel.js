@@ -35,10 +35,13 @@
 
   /** @param {'auto'|'12'|'24'} setting */
   function timeOptions(setting) {
-    const base = { hour: '2-digit', minute: '2-digit' };
-    if (setting === '12') return { ...base, hour12: true };
-    if (setting === '24') return { ...base, hour12: false, hourCycle: 'h23' };
-    return base;   // auto: the locale decides, which is the point of auto
+    // 'numeric' for the 12-hour clock, which nobody pads: en-US writes
+    // "7:05 PM", and '2-digit' produced "07:05 PM". The 24-hour clock does
+    // pad, and 'auto' hands the whole question to the locale — which is the
+    // point of auto, and why hour12 is not passed there.
+    if (setting === '12') return { hour: 'numeric', minute: '2-digit', hour12: true };
+    if (setting === '24') return { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' };
+    return { hour: 'numeric', minute: '2-digit' };
   }
 
   /**
@@ -58,6 +61,10 @@
       const r = mins % 60;
       return r ? `resets in ${h} h ${r} min` : `resets in ${h} h`;
     }
+    // A restored reading can be up to a day old, and its weekly reset may
+    // already have passed — "resets Fri 18:00" on Saturday is a date, not a
+    // forecast. The relative branch has always clamped; this one did not.
+    if (at <= now) return 'resets any minute';
     const d = new Date(at);
     const day = d.toLocaleDateString(locale || undefined, { weekday: 'short' });
     const time = d.toLocaleTimeString(locale || undefined, timeOptions(timeFormat));

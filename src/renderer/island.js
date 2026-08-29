@@ -67,7 +67,14 @@ $('#peek').addEventListener('click', () => window.island.act('expand'));
 // cutout where there is no element of ours to attach to.
 $('#stage').addEventListener('click', (e) => {
   const band = (state.geometry && state.geometry.hotHeight) || 0;
-  if (e.clientY <= band) window.island.act('toggle');
+  if (e.clientY > band) return;
+  // The peek is deliberately tucked 8px under the band and is wider than the
+  // notch, so its top corners sit on real band pixels. A click there used to
+  // fire the peek's expand AND this toggle: the panel opened and shut in one
+  // gesture, and left suppressHover set, so hovering did nothing until the
+  // cursor left the strip.
+  if (e.target.closest && e.target.closest('#peek')) return;
+  window.island.act('toggle');
 });
 
 /**
@@ -348,8 +355,11 @@ function renderPeek() {
   // Resolve the gauge before revealing anything: a peek with nothing to say
   // must stay hidden, not animate out as an empty dark pill.
   const gauges = state.data.gauges || [];
+  // No fallback to gauges[0]: an alert pill showing a DIFFERENT limit's
+  // number is worse than showing nothing. Model quotas come and go with what
+  // the API sends, and the alert names the one it was raised for.
   const gauge = state.peek
-    ? (gauges.find((g) => g.id === state.peek.gaugeId) || gauges[0])
+    ? gauges.find((g) => g.id === state.peek.gaugeId) || null
     : null;
   el.classList.toggle('off', !gauge);
   if (!gauge) return;
@@ -583,8 +593,12 @@ function fillRow(row, gauge, thresholds) {
 
   const bar = row.querySelector('.bar');
   const fill = bar.querySelector('i');
-  fill.className = `tone-${tone}`;
-  fill.style.width = `${Math.max(0, Math.min(100, gauge.percent))}%`;
+  const percent = Math.max(0, Math.min(100, gauge.percent));
+  // `some` carries the minimum-width floor that keeps 1% visible. At 0% it
+  // is withheld, because a quota nobody has touched should look untouched
+  // rather than identical to a used one.
+  fill.className = `tone-${tone}${percent > 0 ? ' some' : ''}`;
+  fill.style.width = `${percent}%`;
 
   // Residue for alerts: a peek lasts four seconds once, so without a mark on
   // the track a warning you looked away from never existed. Doubles as the
@@ -606,7 +620,10 @@ function fillRow(row, gauge, thresholds) {
   if (rate) {
     const span = document.createElement('span');
     span.className = 'row-rate';
-    span.textContent = ` · ${rate}`;
+    // The separator only when there is something to separate: a gauge with
+    // no readable reset date still gets a pace estimate, and the row began
+    // with a dangling middot.
+    span.textContent = reset.textContent ? ` · ${rate}` : rate;
     reset.appendChild(span);
   }
 }
@@ -724,7 +741,15 @@ function renderPrimeBar(p) {
   }
   const sources = wingSources();
   const full = sources.length >= MAX_SOURCES;
-  const sole = sources.length === 1;
+  // A source the account cannot supply resolves to nothing, and the band
+  // falls back to whatever is binding — so the chip said "Model" while the
+  // menu bar showed "Week", and `sole` disabled the one click that would
+  // have corrected it. A chip nothing is drawing for is not the last one
+  // standing.
+  const model = VM.wingsModel(state.data.gauges, sources);
+  const drawnKinds = new Set(model ? [...model.left, ...model.right].map((g) => g.kind) : []);
+  const drawing = (source) => drawnKinds.has(SOURCE_KIND[source]);
+  const sole = sources.filter(drawing).length <= 1;
   const gauges = state.data.gauges || [];
   for (const b of bar.querySelectorAll('.chips.wsrc .chip')) {
     const source = b.dataset.wsrc;
@@ -739,7 +764,7 @@ function renderPrimeBar(p) {
     // Both ends of the range are shown rather than enforced silently: a
     // fourth limit has nowhere to go, and the last one standing cannot be
     // turned off without leaving the band empty.
-    b.disabled = on ? sole : (full || absent);
+    b.disabled = on ? (sole && drawing(source)) : (full || absent);
   }
 
   const mode = p.chain ? 'chain' : p.at ? 'at' : '';

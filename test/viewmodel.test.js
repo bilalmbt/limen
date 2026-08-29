@@ -58,6 +58,28 @@ test('weekly windows reset on a named day', () => {
   assert.ok(/\d/.test(label), 'no time in the label');
 });
 
+test('an absolute reset already in the past is not read out as a date', () => {
+  // A restored reading can be a day old and its weekly window already gone.
+  // "resets Fri 18:00" on Saturday is a date, not a forecast; the relative
+  // branch has always clamped and this one did not.
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const past = { resetStyle: 'absolute', resetsAt: '2026-08-28T18:00:00Z' };
+  assert.strictEqual(VM.resetLabel(past, now, 'en-US', '12'), 'resets any minute');
+  const future = { resetStyle: 'absolute', resetsAt: '2026-09-04T19:05:00Z' };
+  assert.ok(VM.resetLabel(future, now, 'en-US', '12').startsWith('resets Fri'));
+});
+
+test('the 12-hour clock is not zero-padded, the 24-hour one is', () => {
+  // '2-digit' hours gave "07:05 PM", which no locale writes. The file's own
+  // aim is to let the locale decide.
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const g = { resetStyle: 'absolute', resetsAt: '2026-09-04T19:05:00Z' };
+  assert.match(VM.resetLabel(g, now, 'en-US', '12'), /\b9:05\s?PM$/);
+  assert.match(VM.resetLabel(g, now, 'en-US', '24'), /\b21:05$/);
+  assert.strictEqual(VM.timeOptions('12').hour, 'numeric');
+  assert.strictEqual(VM.timeOptions('24').hour, '2-digit');
+});
+
 test('a missing or unreadable reset date yields no label, not garbage', () => {
   assert.strictEqual(VM.resetLabel({ resetStyle: 'relative' }, 0), '');
   assert.strictEqual(VM.resetLabel({ resetStyle: 'relative', resetsAt: 'not a date' }, 0), '');

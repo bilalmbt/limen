@@ -624,7 +624,8 @@ async function refresh(cause = 'schedule', force = false) {
     // know where they are.
     lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
     lastData.primeNote = primeNote();
-    lastData.canPrime = data.ok && !sessionOpen();
+    lastData.canPrime = data.ok === true && lastData.stale !== true && !sessionOpen();
+    lastData.sessionOpen = sessionOpen();
     lastData.wingInfo = config.wingInfo;
     lastData.wingSources = config.wingSources;
     lastData.prime = {
@@ -686,7 +687,14 @@ let peekShowing = false;
 function queuePeek(item) {
   peekQueue.push(item);
   if (peekQueue.length > 2) {
+    // Too many to show one at a time, so the panel answers instead — but
+    // every one of them still gets its notification. The ledger has already
+    // recorded them as spoken, so anything dropped here is dropped for the
+    // whole reset window, and the first poll after launch raises every
+    // gauge already over a threshold at once.
+    for (const queued of peekQueue) notify(queued);
     peekQueue.length = 0;
+    peekShowing = false;
     const r = I.promote(machine);
     machine = r.m;
     applyEffects(r.effects);
@@ -1052,7 +1060,11 @@ function setPrimeDays(days) {
 function decorate(d) {
   d.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
   d.primeNote = primeNote();
-  d.canPrime = Boolean(d.ok) && !sessionOpen();
+  // Not the cache's `ok`: a stale payload is `{...lastGood, stale:true}`, so
+  // `ok` is the last GOOD reading's. Offering to spend a real message on the
+  // strength of a reading the same panel is flagging as unreliable — and at
+  // launch, before any fetch at all.
+  d.canPrime = d.ok === true && d.stale !== true && !sessionOpen();
   d.accountLive = lastData.accountLive;
   // The sign-in nudge costs a five-hour window unless one is already open,
   // and the button says so — which it can only do if it is told.

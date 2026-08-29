@@ -66,8 +66,13 @@ html, body {
 /* ---- the anchor drawn on displays that have no real notch ---- */
 #fakenotch {
   position: absolute;
-  top: 0; left: 50%;
-  transform: translateX(-50%);
+  /* Centred by geometry, not by transform. reportSurface() measures with
+     offsetLeft — deliberately, because getBoundingClientRect returns the
+     ANIMATED box — and offsetLeft cannot see a translate. Centring this the
+     transform way put the reported rect half a width to the right: the left
+     half of the notch was click-through, and an equal strip of real menu bar
+     to its right captured clicks and toggled the panel. */
+  top: 0; left: calc(50% - var(--notch-w) / 2);
   width: var(--notch-w);
   height: var(--hot-h);
   background: #000;
@@ -238,7 +243,7 @@ html, body {
    from the top, which a flat slab lacks. */
 #peek, #panel {
   position: absolute;
-  left: 50%;
+  left: 50%;   /* #peek overrides this below; #panel is placed by alignPanel */
   background: linear-gradient(#000 0, #000 14px, var(--glass) 46px);
   border: 1px solid var(--edge);
   border-top: none;
@@ -261,11 +266,11 @@ html, body {
    layered — a contact shadow plus two spreads — because one big blur reads
    as a grey smudge against a bright desktop rather than a lift. */
 #peek.off {
-  transform: translateX(-50%) translateY(-10px) scaleY(0.82) scaleX(0.94);
+  transform: translateY(-10px) scaleY(0.82) scaleX(0.94);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
 }
 #peek:not(.off) {
-  transform: translateX(-50%) translateY(0) scale(1);
+  transform: translateY(0) scale(1);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.28),
     0 8px 18px rgba(0, 0, 0, 0.32),
@@ -308,7 +313,10 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   #peek, #panel, .wing, #fakenotch, .bar > i { transition: opacity 0.1s linear; }
-  #peek.off, #peek:not(.off) { transform: translateX(-50%); }
+  /* No transform at all now: the peek is centred by its box, so re-adding
+     the translate here would shift it half a width for anyone who asked for
+     less motion. */
+  #peek.off, #peek:not(.off) { transform: none; }
   #panel.off, #panel:not(.off) { transform: none; }
   #panel.entering .head, #panel.entering #stale, #panel.entering .row,
   #panel.entering #ceiling, #panel.entering .empty-note,
@@ -317,6 +325,13 @@ html, body {
 
 /* ---- peek: one line, event-driven ---- */
 #peek {
+  /* Centred by the box, not by a transform: its transform carries the
+     entrance, and offsetLeft — which is what reports this rect to the main
+     process — cannot see either one. See the note on #fakenotch. */
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: fit-content;
   top: calc(var(--hot-h) - 8px);
   display: flex;
   align-items: flex-start;   /* the ring sits on the title's cap band */
@@ -445,6 +460,13 @@ html, body {
 .bar > i {
   display: block;
   height: 100%;
+  /* Only once there is something to show: at 0% the floor drew the same
+     5px sliver as 1%, so a quota nobody had touched looked used. */
+  min-width: 0;
+}
+/* The floor that keeps a nonzero quota visibly nonzero, applied only when
+   the quota IS nonzero. */
+.bar > i.some {
   min-width: 5px;
   border-radius: 99px;
   transition: width 720ms var(--calm), background-color 420ms ease;
