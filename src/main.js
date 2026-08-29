@@ -727,6 +727,31 @@ async function resolveClaude() {
          await ask(['-ilc', 'command -v claude']);
 }
 
+/**
+ * What Claude Code itself thinks about being signed in.
+ *
+ * `claude auth status` answers in about a fifth of a second and loads
+ * nothing — no session, no MCP servers. It is the cheapest way to tell the
+ * two failures apart: a token this app cannot read because it expired, which
+ * a real call will refresh, and an account that is simply not logged in,
+ * where nothing but a browser will do.
+ *
+ * @returns {Promise<boolean|null>} null when the question cannot be asked
+ */
+function claudeLoggedIn(bin) {
+  return new Promise((resolve) => {
+    execFile(bin, ['auth', 'status'], { timeout: 5000 }, (err, stdout) => {
+      if (err && !stdout) return resolve(null);
+      try {
+        const parsed = JSON.parse(String(stdout));
+        resolve(typeof parsed.loggedIn === 'boolean' ? parsed.loggedIn : null);
+      } catch (_) {
+        resolve(null);   // a future version that answers differently is not a no
+      }
+    });
+  });
+}
+
 let signingIn = false;
 let pendingTerminal = false;   // the first click nudges; a second opens Terminal
 
@@ -1005,8 +1030,12 @@ async function signInViaClaudeCode() {
     // `claude -p ok` cannot log anyone in — that needs a browser — so trying
     // buys twenty seconds of waiting and the same answer. Straight to the
     // step that works, which the button has already named.
-    const nothingToRefresh = lastData.reason === 'no-credentials';
-    if (nothingToRefresh) trace('sign-in: no credentials to refresh, going straight to Terminal');
+    // Ask Claude Code before spending twenty seconds guessing. Not logged in
+    // at all means the nudge cannot work, whatever our own read said.
+    const loggedIn = bin ? await claudeLoggedIn(bin) : null;
+    if (loggedIn !== null) trace(`sign-in: claude auth status says loggedIn=${loggedIn}`);
+    const nothingToRefresh = lastData.reason === 'no-credentials' || loggedIn === false;
+    if (nothingToRefresh) trace('sign-in: nothing to refresh, going straight to Terminal');
     if (bin && !nothingToRefresh) {
       trace('sign-in: nudging Claude Code headlessly');
       const began = Date.now();
@@ -1037,10 +1066,15 @@ async function signInViaClaudeCode() {
     // argument rather than interpolated into the script: building AppleScript
     // by concatenation breaks on a space and quotes badly on anything worse.
     trace('sign-in: opening Terminal for an interactive login');
+    // `claude auth login`, not bare `claude`. Opening a full session starts
+    // the user's whole Claude Code environment — every MCP server — and
+    // Terminal then asks, in its own name, for their Downloads, their music
+    // library and whatever else those servers reach for. A login flow needs
+    // none of it.
     execFile('/usr/bin/osascript', [
       '-e', 'on run argv',
       '-e', 'tell application "Terminal" to activate',
-      '-e', 'tell application "Terminal" to do script (quoted form of item 1 of argv)',
+      '-e', 'tell application "Terminal" to do script ((quoted form of item 1 of argv) & " auth login")',
       '-e', 'end run',
       bin || 'claude'
     ], { timeout: 8000 }, (err) => {
