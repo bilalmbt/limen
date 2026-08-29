@@ -254,6 +254,29 @@ test('only sign-in fixable reasons offer the sign-in path', () => {
   assert.strictEqual(VM.isCredentialProblem(undefined), false);
 });
 
+test('an expired token on a live account is not an expired sign-in', () => {
+  // The account is signed in; only the stored token went stale, and Claude
+  // Code rotates that itself on its next call. Saying "your sign-in expired"
+  // sends someone to a login screen they do not need.
+  assert.strictEqual(VM.reasonLabel('token-expired', true),
+    'Claude Code has not refreshed its token yet');
+  assert.strictEqual(VM.reasonLabel('token-expired', false),
+    'Your Claude Code sign-in expired', 'no account behind it: that IS a sign-in problem');
+  assert.strictEqual(VM.reasonLabel('token-expired'),
+    'Your Claude Code sign-in expired', 'unknown falls back to the cautious wording');
+  assert.ok(VM.staleLine('token-expired', null, 0, true).startsWith('Claude Code has not'),
+    'the status strip agrees with the label');
+});
+
+test('the button asks for a refresh when there is nothing to sign into', () => {
+  assert.strictEqual(VM.signInAction('token-expired', null, true).label,
+    'Refresh from Claude Code', 'signed in already — do not offer a sign-in');
+  assert.strictEqual(VM.signInAction('token-expired', null, false).label,
+    'Open Terminal to sign in', 'no live account: only a browser will do');
+  assert.strictEqual(VM.signInAction('token-expired', null, null).label,
+    'Sign in with Claude Code', 'unknown keeps the old wording');
+});
+
 test('the sign-in button offers what can actually be done', () => {
   // A headless nudge only fixes an expired token with a live refresh token.
   // With no credentials at all, nothing is refreshable and the only real

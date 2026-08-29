@@ -103,7 +103,14 @@
   }
 
   /** Why the numbers are stale, in words a human can act on. */
-  function reasonLabel(reason) {
+  function reasonLabel(reason, accountLive) {
+    // An expired token on a live account is not an expired sign-in, and
+    // saying so sends people to a login screen they do not need. Claude Code
+    // rotates this token on its own; all that is missing is a call to make
+    // it happen, which is one click away.
+    if (reason === 'token-expired' && accountLive === true) {
+      return 'Claude Code has not refreshed its token yet';
+    }
     // Diagnoses, not instructions: the panel's button carries the action, and
     // a note that repeats it in dimmer type says the same thing twice.
     const known = {
@@ -124,8 +131,8 @@
    * carry it, and three middot-chained clauses in the smallest type read as
    * developer vocabulary rather than a status.
    */
-  function staleLine(reason, retryAt, now) {
-    const base = reasonLabel(reason);
+  function staleLine(reason, retryAt, now, accountLive) {
+    const base = reasonLabel(reason, accountLive);
     const said = base.charAt(0).toUpperCase() + base.slice(1);
     if (!retryAt || retryAt <= now) return said;
     const mins = Math.max(1, Math.round((retryAt - now) / 60000));
@@ -259,11 +266,17 @@
    * instead, and naming it is also what makes opening Terminal acceptable:
    * a button that says it will open Terminal may open Terminal.
    */
-  function signInAction(reason, status) {
+  function signInAction(reason, status, accountLive) {
     if (status === 'working') return { label: 'Signing in…', disabled: true };
     if (status === 'prime-failed') return { label: 'Could not sign in — try again', disabled: false };
     if (status === 'needs-terminal') return { label: 'Open Terminal to finish', disabled: false };
-    if (reason === 'no-credentials') return { label: 'Open Terminal to sign in', disabled: false };
+    if (reason === 'no-credentials' || accountLive === false) {
+      return { label: 'Open Terminal to sign in', disabled: false };
+    }
+    // Signed in already: the button's job is to make Claude Code rotate a
+    // token it is perfectly entitled to rotate, so it should not be offering
+    // a sign-in to someone who is signed in.
+    if (accountLive === true) return { label: 'Refresh from Claude Code', disabled: false };
     return { label: 'Sign in with Claude Code', disabled: false };
   }
 

@@ -443,7 +443,7 @@ function renderPanel() {
   staleEl.classList.toggle('off', !showStale);
   if (showStale) {
     staleEl.querySelector('.stale-text').textContent =
-      VM.staleLine(d.reason, d.retryAt, Date.now());
+      VM.staleLine(d.reason, d.retryAt, Date.now(), d.accountLive);
   }
 
   // A 400pt slab holding one line and a button reads unresolved.
@@ -482,7 +482,7 @@ function renderPanel() {
       const note = document.createElement('div');
       note.className = 'empty-note';
       // A successful answer with no limits is its own case, not an "unknown" error.
-      note.textContent = d.ok ? 'No limits exposed for this account' : VM.reasonLabel(d.reason);
+      note.textContent = d.ok ? 'No limits exposed for this account' : VM.reasonLabel(d.reason, d.accountLive);
       rowsEl.appendChild(note);
       syncSignIn(rowsEl, d.reason);
       return;
@@ -519,7 +519,7 @@ function syncSignIn(rowsEl, reason) {
   // forever on failure, or silently reset to its default label on success —
   // either way they never learned what happened. The wording lives in the
   // viewmodel, where the rule about what is actually fixable is tested.
-  const action = VM.signInAction(state.data.reason, status);
+  const action = VM.signInAction(state.data.reason, status, state.data.accountLive);
   btn.textContent = action.label;
   btn.disabled = action.disabled;
 }

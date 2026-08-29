@@ -571,6 +571,17 @@ async function refresh(cause = 'schedule', force = false) {
       if (data.plan) lastData.plan = data.plan;
     }
 
+    // Only when something is wrong with the credentials, and only then: the
+    // probe is cheap but it is still a subprocess, and there is no reason to
+    // run one every two minutes to be told again that all is well.
+    if (!data.ok && VM.isCredentialProblem(data.reason)) {
+      const bin = await resolveClaude();
+      lastData.accountLive = bin ? await claudeLoggedIn(bin) : null;
+      trace(`credentials: ${data.reason}, claude account live=${lastData.accountLive}`);
+    } else {
+      lastData.accountLive = undefined;
+    }
+
     logState(data);
     if (data.ok && data.gauges.length) setRows(data.gauges.length);
     // The panel draws threshold marks where the alerts sit, so it needs to
@@ -967,6 +978,7 @@ function decorate(d) {
   d.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
   d.primeNote = primeNote();
   d.canPrime = Boolean(d.ok) && !sessionOpen();
+  d.accountLive = lastData.accountLive;
   d.wingInfo = config.wingInfo;
   d.wingSources = config.wingSources;
   d.prime = {
