@@ -146,34 +146,6 @@ function inRect(cursor, r) {
     cursor.y >= r.top && cursor.y <= r.bottom;
 }
 
-/**
- * The clickable surface while the panel is out. It starts BELOW the menu bar
- * strip on purpose: the island may accept clicks on its own pixels, but a
- * click aimed at a menu title or a status item must never be ours — so the
- * top sliver of the panel (the part tucked under the notch) stays passive.
- */
-function panelRect(display, rows, overrides = {}) {
-  const m = metrics(display, overrides);
-  const half = G.panelWidth / 2;
-  return {
-    left: m.centerX - half,
-    right: m.centerX + half,
-    top: m.top + m.hotHeight,
-    bottom: m.top + m.hotHeight - 10 + panelHeight(rows)
-  };
-}
-
-/** The clickable surface while a peek is out: a narrow strip under the notch. */
-function peekRect(display, overrides = {}) {
-  const m = metrics(display, overrides);
-  return {
-    left: m.centerX - 170,
-    right: m.centerX + 170,
-    top: m.top + m.hotHeight,
-    bottom: m.top + m.hotHeight + 60
-  };
-}
-
 /** Is the cursor inside the reveal strip? */
 function inHotZone(cursor, display, overrides = {}) {
   return inRect(cursor, hotZone(display, overrides));
@@ -210,5 +182,5 @@ function pickIslandDisplay({ displays, primaryId, externalMode = 'island', prefe
 
 module.exports = {
   G, metrics, panelHeight, windowBounds, hotZone, keepAlive,
-  inRect, inHotZone, insideKeepAlive, panelRect, peekRect, pickIslandDisplay
+  inRect, inHotZone, insideKeepAlive, pickIslandDisplay
 };

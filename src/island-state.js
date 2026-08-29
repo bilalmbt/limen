@@ -24,7 +24,15 @@ const T = {
   graceMs: 380,      // leaving keep-alive starts this timer before collapsing
   peekMs: 4000,      // how long an alert peek stays out
   reentryMs: 1500,   // re-opening this soon skips the dwell: intent is established
-  stillPt: 6         // movement under this between samples counts as parked
+  stillPt: 6,        // movement under this between samples counts as parked
+  // A DELIBERATE open — the tray item, the shortcut, a click — waits this
+  // long for the cursor before hover rules apply. Without it the grace timer
+  // armed on the very first sample, and "Show usage" from the tray was a
+  // half-second flash: the cursor was at the tray, nowhere near keep-alive.
+  // Long enough to travel from any corner and read the panel; bounded, so a
+  // panel promoted by an alert burst while nobody is at the desk does not
+  // squat over the screen for hours.
+  holdMs: 30000
 };
 
 function create() {
@@ -35,6 +43,7 @@ function create() {
     suppressHover: false,  // dismissed by click; deaf until the cursor leaves
     dwellSince: null,
     hideAt: null,
+    holdUntil: null,  // a deliberate open stays out until then, or until visited
     peekUntil: null,
     peekGaugeId: null,
     lastCollapseAt: null
@@ -97,11 +106,20 @@ function tick(m, { inHot, inKeepAlive, now, moved = 0 }, t = T) {
     // progress used to vanish the moment the cursor left.
     if (inKeepAlive || next.busy) {
       next.hideAt = null;
+      // The cursor has arrived: the deliberate-open hold has done its job,
+      // and from here the normal hover rules decide.
+      next.holdUntil = null;
+    } else if (next.holdUntil !== null && now < next.holdUntil) {
+      // Opened on purpose, cursor not here yet: wait for it rather than
+      // collapsing at whatever corner of the screen the tray click left it.
+      next.hideAt = null;
     } else if (next.hideAt === null) {
+      next.holdUntil = null;
       next.hideAt = now + t.graceMs;
     } else if (now >= next.hideAt) {
       next.state = DORMANT;
       next.hideAt = null;
+      next.holdUntil = null;
       next.lastCollapseAt = now;
       effects.push('collapse');
     }
@@ -144,14 +162,16 @@ function alert(m, gaugeId, now, t = T) {
 
 
 /**
- * A deliberate click on the island's own surface: show everything. A peek
- * promotes to the panel; the panel stays as it is.
+ * A deliberate open — the tray item, the shortcut, a click, an alert burst
+ * that outgrew its peeks. A peek promotes to the panel; the panel stays as
+ * it is. The hold is what lets the panel outlive a cursor that is still at
+ * the tray icon it was opened from.
  */
-function promote(m) {
+function promote(m, now = 0, t = T) {
   if (m.state === EXPANDED) return { m: { ...m }, effects: [] };
   const wasPeek = m.state === PEEK;
   const next = {
-    ...m, state: EXPANDED,
+    ...m, state: EXPANDED, holdUntil: now + t.holdMs,
     dwellSince: null, hideAt: null, peekUntil: null, peekGaugeId: null
   };
   return { m: next, effects: wasPeek ? ['unpeek', 'expand'] : ['expand'] };
@@ -167,7 +187,7 @@ function toggle(m, now = 0) {
     if (m.busy) return { m: { ...m }, effects: [] };   // a running task holds it
     return {
       m: {
-        ...m, state: DORMANT, dwellSince: null, hideAt: null,
+        ...m, state: DORMANT, dwellSince: null, hideAt: null, holdUntil: null,
         // The click that closed it left the cursor sitting on the very thing
         // that opens it, so hover would re-open on the next sample and the
         // panel could never be dismissed. Hovering is deaf until the cursor
@@ -179,7 +199,7 @@ function toggle(m, now = 0) {
       effects: ['collapse']
     };
   }
-  return promote(m);
+  return promote(m, now);
 }
 
 /** The global shortcut / tray checkbox: ambient wings on or off. */

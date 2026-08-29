@@ -8,8 +8,12 @@ set -euo pipefail
 
 fail=0
 shopt -s nullglob
-dmgs=(dist/*.dmg)
-[ ${#dmgs[@]} -gt 0 ] || { echo "no .dmg in dist/ — nothing to verify"; exit 1; }
+# Only THIS version's images: dist/ accumulates dmgs across builds, and a
+# stale pair from the previous release can pass every check below — "All
+# artifacts releasable" must be about the set being released.
+version="$(node -p "require('./package.json').version")"
+dmgs=(dist/*-"$version"-*.dmg)
+[ ${#dmgs[@]} -gt 0 ] || { echo "no ${version} .dmg in dist/ — nothing to verify"; exit 1; }
 
 for dmg in "${dmgs[@]}"; do
   echo "== $(basename "$dmg")"

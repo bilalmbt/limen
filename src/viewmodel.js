@@ -150,7 +150,10 @@
       'rate-limited': 'Anthropic throttled the check',
       'server': 'Claude’s API is unavailable',
       'network': 'No connection',
-      'loading': 'First read on its way'
+      'loading': 'First read on its way',
+      // A parseable 200 with no limits in it: the kept reading needs a
+      // caption that is not "Unknown problem".
+      'empty': 'Claude answered with no limits'
     };
     return known[reason] || reason || 'Unknown problem';
   }

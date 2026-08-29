@@ -24,9 +24,21 @@ const {
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+// The self-test clicks REAL controls, and real controls save real settings.
+// Redirect both files into a scratch directory before ./paths and ./state
+// resolve their locations at require time, so exercising the wiring can
+// never edit the config of the person running the harness.
+if (process.env.ISLAND_SELFTEST && !process.env.LIMEN_CONFIG_DIR) {
+  process.env.LIMEN_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'limen-selftest-'));
+  if (!process.env.ISLAND_STATE_FILE) {
+    process.env.ISLAND_STATE_FILE = path.join(process.env.LIMEN_CONFIG_DIR, 'state.json');
+  }
+}
+
 const { fetchUsage } = require('./usage');
 const {
-  FORCE_FLOOR_MS, MAX_DELAY_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed
+  FORCE_FLOOR_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed
 } = require('./schedule');
 const store = require('./state');
 const alerts = require('./alerts');
@@ -109,7 +121,13 @@ function loadConfig() {
 function writeConfigFile(file) {
   try {
     fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(file, null, 2) + '\n');
+    // Write beside it, then rename — the same bargain state.js makes, for
+    // the same reason: this file is rewritten on every tray toggle, and a
+    // truncated one reads as {} — after which the next save would persist
+    // only the one toggled key and quietly discard every other setting.
+    const tmp = `${CONFIG_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(file, null, 2) + '\n');
+    fs.renameSync(tmp, CONFIG_PATH);
     return true;
   } catch (_) {
     return false;   // a read-only home must not take the island down
@@ -176,6 +194,18 @@ function sendBusy(on) {
 }
 
 /**
+ * The runtime twin of restoreLastGood's age rule. A restart refuses to show
+ * a reading older than a day, but a Mac that stays up for weeks never
+ * restarts — so through a long enough outage the "stale" numbers on screen
+ * were last month's, still wearing a percentage. Past the same cutoff, the
+ * degraded no-numbers view is the honest one.
+ */
+function showableLastGood() {
+  return Boolean(lastGood && lastGood.fetchedAt &&
+    Date.now() - lastGood.fetchedAt <= store.MAX_AGE_MS);
+}
+
+/**
  * Where an installed copy writes its log.
  *
  * A packaged app launched from Finder has nowhere to put stdout: it is not
@@ -189,12 +219,16 @@ const LOG_PATH = path.join(os.homedir(), 'Library', 'Logs', 'Limen.log');
 const LOG_CAP = 512 * 1024;   // a widget's log is for the last hour, not the year
 
 let logStream = null;
+let logBytes = 0;
 function openLog() {
   try {
     // Truncate on launch past the cap rather than rotating: nobody wants
     // Limen.log.3, and the interesting part is always the current run.
     let flags = 'a';
-    try { if (fs.statSync(LOG_PATH).size > LOG_CAP) flags = 'w'; } catch (_) {}
+    try {
+      logBytes = fs.statSync(LOG_PATH).size;
+      if (logBytes > LOG_CAP) { flags = 'w'; logBytes = 0; }
+    } catch (_) { logBytes = 0; }
     fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
     logStream = fs.createWriteStream(LOG_PATH, { flags });
   } catch (_) {
@@ -207,7 +241,19 @@ function trace(event) {
   const line = `[${new Date().toISOString()}] ${event}`;
   console.log(line);
   if (logStream) {
-    try { logStream.write(line + '\n'); } catch (_) { logStream = null; }
+    try {
+      logStream.write(line + '\n');
+      logBytes += Buffer.byteLength(line) + 1;
+      // Enforced here, not only at launch: this app is built to run for
+      // months between launches, and the mouse take/release lines alone
+      // would grow an unwatched file without bound.
+      if (logBytes > LOG_CAP) {
+        logStream.end();
+        logStream = fs.createWriteStream(LOG_PATH, { flags: 'w' });
+        logBytes = 0;
+        logStream.write(`[${new Date().toISOString()}] log started over past ${LOG_CAP} bytes\n`);
+      }
+    } catch (_) { logStream = null; }
   }
 }
 
@@ -243,15 +289,27 @@ function onDisplaysChanged() {
   const display = islandDisplay();
   if (!display) {
     trace('no display for the island (clamshell + externalDisplays off): hiding');
+    // The id must go too: the startup path already knows this — a stale id
+    // lets poll() run the whole hover machine on a screen the settings
+    // excluded, and re-show the window the line below just hid.
+    currentDisplayId = null;
     if (win && !win.isDestroyed()) win.hide();
     return;
   }
-  trace(`displays changed: moving to ${display.id}`);
+  const moved = display.id !== currentDisplayId;
+  if (moved) trace(`displays changed: moving to ${display.id}`);
   // A panel or peek that was open on the display that just went away should
   // not reappear on the one that replaced it, with the cursor nowhere near
   // it. Only the chips survive a display change, because only they are
   // meant to be on screen without a cursor.
-  if (machine.state !== I.DORMANT) {
+  //
+  // Only when the island actually changes displays. This handler fires for
+  // a metrics tick on ANY monitor — a fullscreen transition, a Dock resize —
+  // and collapsing the open panel for one of those closes it under a cursor
+  // that is nowhere near the hot strip. Worse for a peek: the ledger has
+  // already recorded its alert as spoken, so a peek cut short is an alert
+  // lost for the whole reset window.
+  if (moved && machine.state !== I.DORMANT) {
     machine = { ...machine, state: I.DORMANT, dwellSince: null, hideAt: null, peekGaugeId: null };
     if (ready && win && !win.isDestroyed()) {
       win.webContents.send('panel', false);
@@ -336,7 +394,21 @@ function createWindow(display) {
     clearTimeout(peekTimer);
     clearTimeout(primeTimer);
   });
-  win.webContents.on('render-process-gone', (_e, d) => trace(`renderer gone: ${d.reason}`));
+  // Reload rather than shrug: a dead renderer left the tray working and the
+  // island a blank window until someone quit and relaunched by hand. The
+  // did-finish-load replay below already restores the whole state — that
+  // machinery exists for exactly this. At most once a minute, so a renderer
+  // that dies on arrival cannot become a relaunch loop.
+  let lastRendererRevival = 0;
+  win.webContents.on('render-process-gone', (_e, d) => {
+    trace(`renderer gone: ${d.reason}`);
+    const now = Date.now();
+    if (now - lastRendererRevival > 60000 && win && !win.isDestroyed()) {
+      lastRendererRevival = now;
+      ready = false;
+      win.webContents.reload();
+    }
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('did-finish-load', () => {
     ready = true;
@@ -346,7 +418,10 @@ function createWindow(display) {
     win.webContents.send('panel', machine.state === I.EXPANDED);
     win.webContents.send('wings', machine.wings);
     if (machine.state === I.PEEK) win.webContents.send('peek', { gaugeId: machine.peekGaugeId });
-    if (I.windowVisible(machine)) win.showInactive();
+    // currentDisplay() and not just windowVisible(): with wings on in the
+    // config but externalDisplays 'off', the machine wants a window that has
+    // nowhere to be — display-added shows it when somewhere appears.
+    if (I.windowVisible(machine) && currentDisplay()) win.showInactive();
   });
 }
 
@@ -380,10 +455,16 @@ function setRows(n) {
 
 function applyEffects(effects) {
   if (!effects.length || !win || win.isDestroyed()) return;
+  // Nothing is SHOWN without a display to show it on. Hover cannot get here
+  // display-less (poll bails first), but the wings toggle and the startup
+  // replay can — and a window shown then sits on the excluded display, drawn
+  // with the stylesheet's placeholder geometry because sendGeometry() had
+  // nothing to measure.
+  const show = () => { if (currentDisplay()) win.showInactive(); };
   for (const effect of effects) {
     if (effect === 'expand') {
       clearTimeout(hideTimer);
-      win.showInactive();
+      show();
       if (ready) win.webContents.send('panel', true);
       if (shouldRefreshOnReveal(lastGood && lastGood.fetchedAt, failures, Date.now())) refresh('reveal');
     } else if (effect === 'collapse') {
@@ -392,7 +473,7 @@ function applyEffects(effects) {
       hideWhenIdle();
     } else if (effect === 'peek') {
       clearTimeout(hideTimer);
-      win.showInactive();
+      show();
       if (ready) win.webContents.send('peek', { gaugeId: machine.peekGaugeId });
     } else if (effect === 'unpeek') {
       setInteractive(false);
@@ -400,7 +481,7 @@ function applyEffects(effects) {
       hideWhenIdle();
     } else if (effect === 'wings-on') {
       clearTimeout(hideTimer);
-      win.showInactive();
+      show();
       if (ready) win.webContents.send('wings', true);
     } else if (effect === 'wings-off') {
       if (ready) win.webContents.send('wings', false);
@@ -597,8 +678,12 @@ async function refresh(cause = 'schedule', force = false) {
       // replaced the last real reading, blanked the island, and persisted
       // the void — after which restoreLastGood had nothing to restore
       // either, because it rejects empty readings on the way back in.
+      // A real reason all the same: the dressed reading used to carry none,
+      // and the status strip rendered `undefined` as "Unknown problem".
       trace('empty reading: keeping the last good one');
-      lastData = lastGood ? { ...lastGood, stale: true, checkedAt: data.fetchedAt } : data;
+      lastData = showableLastGood()
+        ? { ...lastGood, stale: true, reason: 'empty', checkedAt: data.fetchedAt, retryAt: Date.now() + delay }
+        : data;
     } else if (data.ok) {
       history = trend.push(history, data.gauges, data.fetchedAt);
       data.trend = trend.summarize(history, data.gauges, data.fetchedAt);
@@ -614,7 +699,7 @@ async function refresh(cause = 'schedule', force = false) {
       // a count alone restarts the whole backoff on every launch, so a
       // restart an hour later would still sit out a fresh 15 minutes.
       store.save({ failures, lastReason: data.reason, nextAllowedAt: Date.now() + delay });
-      lastData = lastGood
+      lastData = showableLastGood()
         ? { ...lastGood, stale: true, reason: data.reason, checkedAt: data.fetchedAt, retryAt: Date.now() + delay }
         : { ...data, retryAt: Date.now() + delay };
       // The plan comes from the credentials, not the endpoint, so a failed
@@ -656,21 +741,10 @@ async function refresh(cause = 'schedule', force = false) {
 
     logState(data);
     if (data.ok && data.gauges.length) setRows(data.gauges.length);
-    // The panel draws threshold marks where the alerts sit, so it needs to
-    // know where they are.
-    lastData.alertAt = Array.isArray(config.alertAt) ? config.alertAt : [];
-    lastData.primeNote = primeNote();
-    lastData.canPrime = data.ok === true && lastData.stale !== true && !sessionOpen();
-    lastData.sessionOpen = sessionOpen();
-    lastData.wingInfo = config.wingInfo;
-    lastData.wingSources = config.wingSources;
-    lastData.prime = {
-      at: config.primeAt[0] || '',
-      days: config.primeDays,
-      chain: config.primeChain,
-      model: config.primeModel
-    };
-    if (ready && win && !win.isDestroyed()) win.webContents.send('usage', lastData);
+    // decorate(), never a hand-written copy of its field list: the two lists
+    // diverged once already (the canPrime gate), and the next field added
+    // would land in one and not the other.
+    pushUsage();
     updateTray();
     // Checked on the data cadence: it needs to know whether a window is open,
     // which is exactly what we just found out.
@@ -688,6 +762,25 @@ async function refresh(cause = 'schedule', force = false) {
   if (win && !win.isDestroyed()) {
     refreshTimer = setTimeout(() => refresh('schedule'), delay);
   }
+}
+
+/**
+ * A forced refresh that outlasts the five-second force floor.
+ *
+ * A prime or a sign-in nudge finishes a few seconds after the fetch that
+ * triggered it, so its verification refresh routinely lands inside the
+ * floor, is held, and the caller then judges "did it work" from numbers
+ * that predate the thing it just did — a prime that worked reported as
+ * failed, and a second click spending a second real message. The sign-in
+ * path learned this first; the prime paths repeated it. One helper, so the
+ * next caller cannot.
+ */
+async function verifyingRefresh(cause) {
+  if (await refresh(cause, true)) return true;
+  const wait = Math.max(0, lastFetchAt + FORCE_FLOOR_MS - Date.now()) + 250;
+  trace(`${cause}: refresh held, waiting ${Math.round(wait / 1000)} s for the floor`);
+  await new Promise((r) => setTimeout(r, wait));
+  return refresh(cause, true);
 }
 
 /**
@@ -731,7 +824,11 @@ function queuePeek(item) {
     for (const queued of peekQueue) notify(queued);
     peekQueue.length = 0;
     peekShowing = false;
-    const r = I.promote(machine);
+    // Same gate as drainPeeks: with no display for the island (clamshell +
+    // externalDisplays off), the notifications above are the whole answer —
+    // promoting would open a panel nothing can ever dismiss.
+    if (!canShowIsland()) return;
+    const r = I.promote(machine, Date.now());
     machine = r.m;
     applyEffects(r.effects);
     return;
@@ -861,7 +958,7 @@ async function findClaude() {
  */
 function claudeLoggedIn(bin) {
   return new Promise((resolve) => {
-    execFile(bin, ['auth', 'status'], { timeout: 5000 }, (err, stdout) => {
+    execFile(bin, ['auth', 'status'], { timeout: 5000, killSignal: 'SIGKILL' }, (err, stdout) => {
       if (err && !stdout) return resolve(null);
       try {
         const parsed = JSON.parse(String(stdout));
@@ -909,6 +1006,17 @@ function sessionOpen() {
   return Number.isFinite(at) && at > Date.now();
 }
 
+/**
+ * Can "is a window open" be answered at all? Accounts expose whichever
+ * limits the API enforces, and without a session gauge sessionOpen() says
+ * "no" forever — which chain mode would read as an invitation to send a
+ * message on every retry, around the clock, for an account whose windows it
+ * cannot see.
+ */
+function sessionKnowable() {
+  return (lastData.gauges || []).some((g) => g.id === 'session');
+}
+
 /** When the running window ends, for the menu to explain why it is disabled. */
 function sessionEndsAt() {
   const g = (lastData.gauges || []).find((x) => x.id === 'session');
@@ -942,6 +1050,13 @@ async function checkPrime() {
   // Nothing to prime with, and nothing worth spending: a broken sign-in
   // would just produce a failed message.
   if (credProblem() || !lastData.ok) return;
+  // The panel's own rule, which this path was missing: a stale reading is
+  // not a basis for spending a real message — canPrime has always refused
+  // it, and auto-open must not be looser than the button.
+  if (lastData.stale === true) return;
+  // And a reading with no session gauge cannot answer "is a window open":
+  // acting on a permanent "no" would prime on every retry, forever.
+  if (!sessionKnowable()) return;
   if (Date.now() < primeFailUntil) return;
 
   const now = new Date();
@@ -989,12 +1104,12 @@ async function checkPrime() {
     }
     trace(`${what}: opening a window (${config.primeModel})`);
     const failed = await new Promise((resolve) => {
-      execFile(bin, primeArgs(), { timeout: 90000 }, (err) => {
+      execFile(bin, primeArgs(), { timeout: 90000, killSignal: 'SIGKILL' }, (err) => {
         if (err) trace(`${what}: failed — ${err.message}`);
         resolve(Boolean(err));
       });
     });
-    await refresh('prime', true);
+    await verifyingRefresh('prime');
     if (failed || !sessionOpen()) {
       // Without this a chain whose prime keeps failing would try again on
       // every poll, forever, because no window ever opens.
@@ -1028,12 +1143,12 @@ async function primeNow() {
     }
     trace(`prime now: opening a new session window (${config.primeModel})`);
     await new Promise((resolve) => {
-      execFile(bin, primeArgs(), { timeout: 90000 }, (err) => {
+      execFile(bin, primeArgs(), { timeout: 90000, killSignal: 'SIGKILL' }, (err) => {
         if (err) trace(`prime now: failed — ${err.message}`);
         resolve();
       });
     });
-    await refresh('prime-now', true);
+    await verifyingRefresh('prime-now');
     sendSignIn(sessionOpen() ? 'primed' : 'prime-failed');
   } finally {
     priming = false;
@@ -1131,8 +1246,10 @@ function decorate(d) {
   // Not the cache's `ok`: a stale payload is `{...lastGood, stale:true}`, so
   // `ok` is the last GOOD reading's. Offering to spend a real message on the
   // strength of a reading the same panel is flagging as unreliable — and at
-  // launch, before any fetch at all.
-  d.canPrime = d.ok === true && d.stale !== true && !sessionOpen();
+  // launch, before any fetch at all. sessionKnowable() for the same reason
+  // the schedule requires it: without a session gauge, "no window is open"
+  // is not a fact, and the button would spend a message to disprove it.
+  d.canPrime = d.ok === true && d.stale !== true && sessionKnowable() && !sessionOpen();
   d.accountLive = lastData.accountLive;
   // The sign-in nudge costs a five-hour window unless one is already open,
   // and the button says so — which it can only do if it is told.
@@ -1215,7 +1332,7 @@ async function signInViaClaudeCode() {
   // button — leaving the whole wait as apparent nothing.
   machine = { ...machine, busy: true };
   if (canShowIsland()) {
-    const r = I.promote(machine);
+    const r = I.promote(machine, Date.now());
     machine = r.m;
     applyEffects(r.effects);
   }
@@ -1263,12 +1380,7 @@ async function signInViaClaudeCode() {
       // false and leaves the OLD reason standing — which this code would
       // otherwise read as "the nudge failed" and send someone to Terminal to
       // fix a token that had just been fixed.
-      if (!await refresh('sign-in', true)) {
-        const wait = Math.max(0, lastFetchAt + FORCE_FLOOR_MS - Date.now()) + 250;
-        trace(`sign-in: refresh held, waiting ${Math.round(wait / 1000)} s for the floor`);
-        await new Promise((r) => setTimeout(r, wait));
-        await refresh('sign-in', true);
-      }
+      await verifyingRefresh('sign-in');
       if (!credProblem()) {
         trace('sign-in: token refreshed, gauges live');
         pendingTerminal = false;
@@ -1424,8 +1536,10 @@ function buildMenu(force = false) {
           // any failure, sessionOpen() is false because there are no gauges
           // — not because no window is running. The panel's own gate has
           // always required ok; this one did not, and spent a real message
-          // to find out.
-          enabled: !priming && lastData.ok === true && !sessionOpen() && !credProblem(),
+          // to find out. Same rule as canPrime now, all of it: not stale,
+          // and only when the session gauge exists to verify against.
+          enabled: !priming && lastData.ok === true && lastData.stale !== true &&
+            sessionKnowable() && !sessionOpen() && !credProblem(),
           click: () => primeNow()
         },
         { type: 'separator' },
@@ -1521,10 +1635,25 @@ function showPanel() {
     trace('show usage: no display for the island; nothing to show it on');
     return;
   }
-  const r = I.promote(machine);
+  const r = I.promote(machine, Date.now());
   machine = r.m;
   applyEffects(r.effects);
   refresh('shown');
+}
+
+/**
+ * The shortcut toggles where the tray item only shows: a keyboard user needs
+ * a route OUT as much as one in, and the promoted panel now waits for a
+ * cursor that a keyboard user is never going to move.
+ */
+function toggleShownPanel() {
+  if (machine.state === I.EXPANDED) {
+    const r = I.toggle(machine, Date.now());
+    machine = r.m;
+    applyEffects(r.effects);
+    return;
+  }
+  showPanel();
 }
 
 /**
@@ -1551,7 +1680,7 @@ function registerShortcuts() {
     }
   };
   bind(config.shortcut, () => toggleWings(), 'menu-bar chips');
-  bind(config.showShortcut, () => showPanel(), 'show usage');
+  bind(config.showShortcut, () => toggleShownPanel(), 'show usage');
 }
 
 let alertsPausedUntil = store.read().alertsPausedUntil || 0;
@@ -1597,9 +1726,13 @@ function reloadConfig() {
   // application path at all.
   const target = islandDisplay();
   if (target) placeOn(target);
-  else if (win && !win.isDestroyed()) {
+  else {
     trace('settings reloaded: no display for the island; hiding');
-    win.hide();
+    // As on startup and display change: with the id left set, poll() keeps
+    // driving the hover machine on the display the setting just excluded,
+    // and the next dwell re-shows the window this branch is hiding.
+    currentDisplayId = null;
+    if (win && !win.isDestroyed()) win.hide();
   }
   sendGeometry();
   // Turning wings on in the file has to show the window, exactly as the
@@ -1612,6 +1745,11 @@ function reloadConfig() {
   if (ready && win && !win.isDestroyed()) win.webContents.send('wings', machine.wings);
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => refresh('schedule'), 1000);
+  // The file is where primeAt/primeChain get hand-edited, and the dedicated
+  // timer was only armed at startup and by the tray/panel setters — so a
+  // reloaded schedule fell back to the refresh loop's cadence, which is the
+  // exact slot-skipping the timer exists to prevent.
+  armPrimeTimer();
   buildMenu(true);
   trace('settings reloaded');
 }
@@ -1921,6 +2059,10 @@ app.whenReady().then(() => {
   if (DEMO) {
     // A showcase, nothing else: no tray, no fetching, no cursor sampling.
     // The real refresh loop would overwrite the scene with live data.
+    // One shortcut all the same: a packaged copy launched with --demo has no
+    // tray, no dock icon and no terminal, which made the showcase
+    // unquittable outside Activity Monitor.
+    globalShortcut.register('CommandOrControl+Q', () => app.quit());
     win.webContents.once('did-finish-load', () => playScene(process.env.ISLAND_SCENE || 'expanded'));
     return;
   }
@@ -1940,9 +2082,16 @@ app.whenReady().then(() => {
     // app is closed, and re-waiting the full delay would punish a restart.
     const stored = store.read().nextAllowedAt;
     const remaining = Number.isFinite(stored) ? stored - Date.now() : NaN;
-    const delay = Number.isFinite(remaining)
-      ? Math.max(0, Math.min(remaining, nextDelay({ ok: false }, failures, config.refreshSeconds)))
-      : nextDelay({ ok: false }, failures, config.refreshSeconds);
+    // A rate-limited remainder is honoured in FULL: nextDelay() has no
+    // Retry-After to obey here (it is not persisted), so min-ing with it
+    // re-capped a server-imposed hour at fifteen minutes — the exact
+    // truncation the schedule module forbids at runtime. The cap stays for
+    // our own guesswork; the skew guard alone bounds the server's.
+    const delay = !Number.isFinite(remaining)
+      ? nextDelay({ ok: false }, failures, config.refreshSeconds)
+      : bootReason === 'rate-limited'
+        ? Math.max(0, Math.min(remaining, CLOCK_SKEW_MS))
+        : Math.max(0, Math.min(remaining, nextDelay({ ok: false }, failures, config.refreshSeconds)));
     const retryAt = Date.now() + delay;
     lastData = lastGood
       ? { ...lastGood, stale: true, reason: bootReason, retryAt }
@@ -2030,7 +2179,7 @@ ipcMain.on('island-action', (e, name, value) => {
     applyEffects(r.effects);
     trace(`band clicked: ${was} -> ${machine.state}`);
   } else if (name === 'expand') {
-    const r = I.promote(machine);
+    const r = I.promote(machine, Date.now());
     machine = r.m;
     applyEffects(r.effects);
   }

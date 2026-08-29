@@ -3,18 +3,20 @@
 <plist version="1.0">
 <dict>
   <!-- Electron's V8 needs both under the hardened runtime; without them the
-       renderer dies on launch in a signed build. -->
+       renderer dies on launch in a signed build.
+
+       And NOTHING else. Two more keys used to sit here — disable-library-
+       validation and allow-dyld-environment-variables — justified by "the app
+       shells out to /usr/bin/security and the claude binary". That reasoning
+       was wrong: the hardened runtime never restricts what a process may
+       EXEC, only what may be loaded INTO it, and this app has no native
+       modules. What the pair actually did was let any local process launch a
+       signed, notarized app with DYLD_INSERT_LIBRARIES and run its own code
+       inside the process whose job is reading the Claude OAuth token — the
+       exact door the hardened runtime exists to close. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-  <!-- The app shells out to /usr/bin/security for the Keychain read and to
-       the claude binary to open a session window. Neither is ours, and the
-       hardened runtime refuses to spawn unsigned or differently-signed
-       executables without this. -->
-  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
-  <true/>
-  <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
 </dict>
 </plist>

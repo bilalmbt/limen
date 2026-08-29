@@ -88,10 +88,9 @@ Three rules keep it honest:
 
 **What this is not.** It does not give you extra quota, and you are not
 losing session time while away — the window is a rate-limit clock, not a
-bucket that fills up. All it does is let you choose where the boundaries sit.
-A continuous 24/7 chain was deliberately not built: the boundaries would
-drift five hours a day and land at arbitrary times, which is the problem
-rather than the fix.
+bucket that fills up. All it does is let you choose where the boundaries
+sit; Chain trades that choice away for always-on, which is why it is not
+the default.
 
 **Worth knowing before you switch it on.** This sends messages on your
 account on a timer, and it exists to influence when a rate-limit window
@@ -111,8 +110,9 @@ bounds.height − bounds.width / 1.6 > 2  ⇒  notched
 ```
 
 …and that difference *is* the notch-band height in points, at any scaling.
-Width is estimated at 12.5% of the logical width (override with
-`notchWidth` in the config). Displays without a notch get a drawn one,
+Width is estimated at 12.23% of the logical width — the ratio measured on
+real 14" and 16" hardware, constant across models and scalings (override
+with `notchWidth` in the config). Displays without a notch get a drawn one,
 top-center, that appears only while the island has something to say
 (`externalDisplays: "off"` disables that).
 
@@ -122,8 +122,10 @@ top-center, that appears only while the island has something to say
   ignores the mouse except while the cursor is over the island's own drawn
   pixels — a rect the *renderer measures and reports*, not one computed from
   constants, because a constant drifts from what is painted and the gap
-  becomes an invisible window that eats clicks. The wings are deliberately
-  excluded: they sit in the menu-bar strip, where a click belongs to a menu.
+  becomes an invisible window that eats clicks. The wings are included —
+  they are drawn pixels of ours, and a click on a chip toggles the panel.
+  The empty menu-bar strip beside them is not, which is why the surface is
+  a *list* of rectangles rather than one bounding box.
 - **Reachable without a mouse.** `⌘⇧U` opens the panel, `⌘⇧I` toggles the
   chips, and every action is in the tray menu — hover-only disclosure left
   keyboard and VoiceOver users with no route to their own quota.
@@ -156,29 +158,30 @@ top-center, that appears only while the island has something to say
 
 ## What the tests cover
 
-`npm test` runs 202 tests over the pure modules, no Electron needed:
+`npm test` runs the pure-module suites — a couple of hundred tests, no
+Electron needed:
 
-- **Notch geometry, 24 tests** — the aspect rule against nine real display
+- **Notch geometry** — the aspect rule against nine real display
   fixtures (14"/16" MBP at three scalings, Air, flat panels, externals,
   16:9 iMac shape), auto-hidden menu bars, negative display coordinates,
   clamshell fallback, and the keep-alive ⊇ hot-zone invariant.
-- **The state machine, 27 tests** — stillness-gated dwell, grace, re-entry,
+- **The state machine** — stillness-gated dwell, grace, re-entry,
   the busy hold, peek timing, promotion, alert-never-demotes, wings
   orthogonality, input immutability, and a cursor merely crossing the strip
   after a collapse staying shut.
-- **Burn rate, 12 tests** — mostly about staying quiet: two samples are a
+- **Burn rate** — mostly about staying quiet: two samples are a
   coincidence, quantisation noise is not a trend, and a rolling-window reset
   voids a rate rather than reporting a negative one.
-- **Wording and tones, 35 tests** — the luminance-ordered ramp, server-graded
+- **Wording and tones** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
-- **The data layer, 51 tests** — normalization (a missing quota never becomes
+- **The data layer** — normalization (a missing quota never becomes
   a displayed zero), the one gate every fetch passes, the alert ledger —
   once per level per window, pace warnings included, and a pause that skips
   rather than holds — and persisted state.
-- **Settings and priming, 39 tests** — a hand-edited file that cannot break
+- **Settings and priming** — a hand-edited file that cannot break
   the app, the wingCount migration, the band's source rules (canonical order,
   a cap of three, never empty), and the auto-open schedule.
-- **The two panel buttons and the login item, 14 tests** — that sign-in and
+- **The two panel buttons and the login item** — that sign-in and
   prime never delete each other, that the settings directory moves once and
   never merges, and that `launchctl print-disabled` is read the right way
   round on both output formats.

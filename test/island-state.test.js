@@ -256,4 +256,35 @@ test('but a deliberate hover still skips most of the dwell coming back', () => {
     I.EXPANDED);
 });
 
+test('a panel opened from the tray waits for the cursor instead of flashing', () => {
+  // The regression this pins: "Show usage" promoted the panel while the
+  // cursor sat at the tray icon — outside keep-alive — so the very first
+  // poll armed the grace timer and the panel was a half-second flash.
+  const opened = I.promote(I.create(), 10000).m;
+  assert.strictEqual(opened.state, I.EXPANDED);
+  const { m, effects } = run(opened, [[OUT, 10100], [OUT, 11000], [OUT, 20000]]);
+  assert.strictEqual(m.state, I.EXPANDED, 'must outlive a cursor that never came');
+  assert.deepStrictEqual(effects, []);
+});
+
+test('once the cursor visits, a deliberate open follows the normal hover rules', () => {
+  const opened = I.promote(I.create(), 10000).m;
+  const visited = run(opened, [[NEAR, 10500]]).m;
+  const left = run(visited, [[OUT, 11000], [OUT, 11000 + I.T.graceMs]]);
+  assert.strictEqual(left.m.state, I.DORMANT, 'the hold ends the moment it is visited');
+  assert.ok(left.effects.includes('collapse'));
+});
+
+test('an unattended deliberate open folds once the hold expires', () => {
+  // An alert burst can promote the panel with nobody at the desk; the hold
+  // is what keeps that from squatting over the screen for hours.
+  const opened = I.promote(I.create(), 10000).m;
+  const after = run(opened, [
+    [OUT, 10000 + I.T.holdMs + 40],
+    [OUT, 10000 + I.T.holdMs + 40 + I.T.graceMs]
+  ]);
+  assert.strictEqual(after.m.state, I.DORMANT);
+  assert.ok(after.effects.includes('collapse'));
+});
+
 console.log(`\n${passed} island state tests passed`);

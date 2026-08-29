@@ -208,25 +208,9 @@ test('no displays means no island, not a crash', () => {
   assert.strictEqual(N.pickIslandDisplay(), null);
 });
 
-test('the clickable surfaces never cover the menu bar strip', () => {
-  for (const [name, d] of FIXTURES) {
-    const m = N.metrics(d);
-    for (const r of [N.panelRect(d, 3), N.peekRect(d)]) {
-      assert.ok(r.top >= d.bounds.y + m.hotHeight,
-        `${name}: a click aimed at a menu title must never be ours`);
-      assert.ok(r.left < m.centerX && r.right > m.centerX, `${name}: surface must straddle center`);
-    }
-  }
-});
-
-test('the clickable surfaces stay inside the keep-alive area', () => {
-  for (const [name, d] of FIXTURES) {
-    const ka = N.keepAlive(d, 3);
-    for (const r of [N.panelRect(d, 3), N.peekRect(d)]) {
-      assert.ok(r.left >= ka.left && r.right <= ka.right && r.bottom <= ka.bottom,
-        `${name}: a clickable point outside keep-alive would collapse under the cursor`);
-    }
-  }
-});
+// panelRect/peekRect used to be asserted here: constant-derived click
+// surfaces, superseded by the renderer reporting its real drawn rectangles
+// (island-surface). Removed with the functions — a test of dead code is
+// false confidence, not coverage.
 
 console.log(`\n${passed} notch geometry tests passed`);

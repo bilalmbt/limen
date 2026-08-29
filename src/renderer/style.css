@@ -168,7 +168,6 @@ html, body {
   width: 7px; height: 7px; border-radius: 50%; flex: none;
   margin-right: 1px;
 }
-.wing .dot.off { display: none; }
 .wing .dot.tone-warn { background: var(--warn); }
 .wing .dot.tone-hot { background: var(--hot); }
 .wing .dot.tone-crit { background: var(--crit); }
@@ -198,16 +197,6 @@ html, body {
 .wing .pct { color: #FFFFFF; background: none; }
 .wing .pct.tone-hot { color: var(--hot); }
 .wing .pct.tone-crit { color: var(--crit); }
-/* A chunkier annulus at menu-bar size: at a 26% stroke the arc was a hairline
-   and the ring read as an empty grey circle, contributing nothing a glance
-   could use. */
-.wing .ring {
-  width: 15px; height: 15px;
-  --stroke: 34%;
-  /* A brighter track so the ring reads as a ring against pure black, rather
-     than as a smudge with a coloured fleck on it. */
-  --track: rgba(255, 255, 255, 0.28);
-}
 /* Flush against the notch: the inner corner is square and tucks 2px under
    the notch edge, so a slightly-off width estimate can never open a seam. */
 .wing.left { right: calc(50% + var(--notch-w) / 2 - 2px); border-radius: 0 0 0 11px; }
@@ -321,7 +310,13 @@ html, body {
 #panel.entering #primebar { animation-delay: 380ms; }
 
 @media (prefers-reduced-motion: reduce) {
-  #peek, #panel, .wing, #fakenotch, .bar > i { transition: opacity 0.1s linear; }
+  /* The state-qualified selectors too: the bare #panel (0,1,0,0) loses to
+     `#panel:not(.off)` (0,1,1,0) at the top of the file, so the open state
+     kept its 440ms springing shadow for exactly the people who asked for
+     less motion. */
+  #peek, #panel, .wing, #fakenotch, .bar > i,
+  #peek.off, #panel.off,
+  #peek:not(.off), #panel:not(.off) { transition: opacity 0.1s linear; }
   /* No transform at all now: the peek is centred by its box, so re-adding
      the translate here would shift it half a width for anyone who asked for
      less motion. */
@@ -375,8 +370,6 @@ html, body {
   padding: 22px 20px 16px;
   border-radius: 0 0 22px 22px;
 }
-#panel.narrow { width: 320px; }
-
 .head {
   display: flex;
   align-items: baseline;
@@ -511,13 +504,7 @@ html, body {
    --ink-dim and pushed the small print under WCAG AA, in the one state
    where reading the small print matters most. */
 #panel.stale .bar,
-#panel.stale /* The account cannot be read, so these figures are from whenever it last
-   could. They are worth keeping — nobody has better — but they must not look
-   like a live reading sitting beside "Claude Code isn't signed in". */
-#panel.unreadable .row { opacity: 0.45; }
-#panel.unreadable .row-value { font-weight: 600; }
-
-.row-reset { opacity: 0.7; }
+#panel.stale .row-reset { opacity: 0.7; }
 
 /* Threshold marks: where the alerts sit, and which have been crossed. A
    peek lasts 4 seconds once; without residue a missed warning never

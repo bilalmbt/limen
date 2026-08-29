@@ -65,7 +65,7 @@ directory left by the old name is moved here the first time the app runs:
   "refreshSeconds": 120,
   "alertAt": [80, 95],
   "wings": false,
-  "wingSources": ["auto"],
+  "wingSources": ["session"],
   "wingInfo": "remaining",
   "externalDisplays": "island",
   "displayId": "primary",
@@ -102,7 +102,7 @@ Requires Node 18+ and Claude Code signed in (macOS Keychain), or a
 
 ```bash
 npm install
-npm test        # 202 tests, no Electron needed
+npm test        # the pure-module suite, no Electron needed
 npm start       # the island, on your notch (or top-center of a flat display)
 npm run dist    # signed .dmg for both architectures (needs a Developer ID cert)
 ```
@@ -110,6 +110,16 @@ npm run dist    # signed .dmg for both architectures (needs a Developer ID cert)
 `npm run demo` opens it with fixture data, and `ISLAND_CAPTURE` renders one
 state to a PNG. [DESIGN.md](DESIGN.md) has the rest: the motion, the notch
 geometry, session priming, what the app sends, and what the tests cover.
+
+## Uninstalling
+
+Quit Limen from the tray, turn **Start at login** off (or remove Limen in
+System Settings → General → Login Items), and move the app to the Trash.
+Settings live in `~/.config/limen`, the cached reading in
+`~/Library/Application Support/Limen`, and the log at
+`~/Library/Logs/Limen.log` — delete those too if you want nothing left.
+A checkout registered with `install.sh` is removed with `./uninstall.sh`
+instead.
 
 ## Known limits
 

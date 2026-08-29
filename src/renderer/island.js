@@ -35,8 +35,12 @@ window.island.onUsage((d) => { state.data = d || state.data; render(); });
 window.island.onPanel((open) => {
   const opening = open === true && !state.panelOpen;
   state.panelOpen = open === true;
+  // `.entering` stays on through the exit. Removing it on close dropped the
+  // stagger animations mid-fill, so a fast hover-out at 200 ms popped the
+  // not-yet-revealed settings block to full opacity for the whole fade-out.
+  // beginEntrance() resets the class on the next open, and the timer clears
+  // it once the choreography is over either way.
   if (opening) beginEntrance();
-  else if (!state.panelOpen) $('#panel').classList.remove('entering');
   render();
 });
 window.island.onPeek((p) => { state.peek = p || null; render(); });
@@ -102,6 +106,17 @@ function wingInfo() { return (state.data && state.data.wingInfo) || 'off'; }
 function wingSources() {
   const s = state.data && state.data.wingSources;
   return Array.isArray(s) && s.length ? s : ['session'];
+}
+
+/**
+ * Whether the band is actually on screen — ONE answer for everything that
+ * keys off it. renderWings hid the chips for a signed-out account while
+ * renderAnchor and alignPanel still asked `state.wings && model`, so the
+ * drawn notch squared its corners toward chips that were not there, and the
+ * panel sized itself from the invisible band's stale leftovers.
+ */
+function wingsShowing(model) {
+  return state.wings && Boolean(model) && VM.numbersAreCurrent(state.data);
 }
 
 /**
@@ -176,21 +191,28 @@ function render() {
  */
 function reportSurface() {
   const rects = [];
-  const add = (el) => {
+  const add = (el, minTop = 0) => {
     if (!el || el.classList.contains('off')) return;
     // offset* and NOT getBoundingClientRect(): the latter returns the
     // ANIMATED box, and this runs while the entry transform is still at
     // scaleY(0.84) translateY(-12px). Layout metrics ignore transforms and
     // describe where the thing lands.
     const left = el.offsetLeft;
-    const top = el.offsetTop;
+    const top = Math.max(el.offsetTop, minTop);
     const w = el.offsetWidth;
-    const h = el.offsetHeight;
+    const h = el.offsetHeight - (top - el.offsetTop);
     if (w > 0 && h > 0) rects.push({ left, top, right: left + w, bottom: top + h });
   };
 
-  add($('#panel'));
-  add($('#peek'));
+  // The panel and the peek are tucked a few pixels under the band so no seam
+  // can open — but those tucked slivers sit in the MENU BAR strip, and a
+  // click on a menu title's bottom pixels must never be ours. Their
+  // clickable rects start at the band's lower edge; the band itself belongs
+  // to the wings, the drawn notch, and the cutout rect below, which are the
+  // things a band click is aimed at.
+  const band = (state.geometry && state.geometry.hotHeight) || 0;
+  add($('#panel'), band);
+  add($('#peek'), band);
   add($('#fakenotch'));
   const wings = $('#wings');
   if (wings && !wings.classList.contains('off')) {
@@ -218,11 +240,11 @@ function renderAnchor() {
   const anything = state.panelOpen || state.peek || state.wings;
   const virtual = state.geometry && state.geometry.notched === false;
   const model = VM.wingsModel(state.data.gauges, wingSources());
-  const wingsShowing = state.wings && Boolean(model);
+  const joined = wingsShowing(model);
   const el = $('#fakenotch');
   el.classList.toggle('off', !(virtual && anything));
-  el.classList.toggle('join-left', wingsShowing && model.left.length > 0);
-  el.classList.toggle('join-right', wingsShowing && model.right.length > 0);
+  el.classList.toggle('join-left', joined && model.left.length > 0);
+  el.classList.toggle('join-right', joined && model.right.length > 0);
 
   // The plan, in the one place a MacBook cannot put anything. A drawn notch
   // is our own rectangle rather than a camera housing, so on those displays
@@ -299,7 +321,7 @@ function renderWings() {
   // the ambient claim "this is your usage right now" — made in the menu bar,
   // with no room for a caveat — so when the app is signed out they state a
   // figure from whenever it last worked. The tray says "sign in" instead.
-  const show = state.wings && Boolean(model) && VM.numbersAreCurrent(state.data);
+  const show = wingsShowing(model);
   wingsEl.classList.toggle('off', !show);
   // With the panel flush below, the band's outer corners go square: the
   // surface continues downward, and a rounded corner would bite the seam.
@@ -328,12 +350,39 @@ function renderWings() {
   // shifted whenever the model name changed length.
   const l = wingsEl.querySelector('.wing.left');
   const r = wingsEl.querySelector('.wing.right');
-  l.style.width = r.style.width = '';
-  const widest = Math.max(
-    l.classList.contains('empty') ? 0 : l.offsetWidth,
-    r.classList.contains('empty') ? 0 : r.offsetWidth
-  );
-  if (widest) l.style.width = r.style.width = `${widest}px`;
+  const equalize = () => {
+    l.style.width = r.style.width = '';
+    const widest = Math.max(
+      l.classList.contains('empty') ? 0 : l.offsetWidth,
+      r.classList.contains('empty') ? 0 : r.offsetWidth
+    );
+    if (widest) l.style.width = r.style.width = `${widest}px`;
+  };
+  equalize();
+
+  // And never wider than the window that would clip it. Content-sized chips
+  // have no ceiling of their own: three sources at 100% with the reset notes
+  // on measure past 660 on a 16" notch, and the window then cuts glyphs off
+  // mid-character — at exactly the usage level where the band matters most.
+  // Shed detail rather than pixels: the reset notes go first, then a long
+  // model name falls back to its monogram, the same bargain the drawn
+  // notch's plan label already makes with itself.
+  const budget = (state.geometry && state.geometry.windowWidth) || 0;
+  if (budget && bandExtent().width > budget) {
+    for (const rst of wingsEl.querySelectorAll('.rst')) rst.remove();
+    equalize();
+  }
+  if (budget && bandExtent().width > budget) {
+    const drawn = [...model.left, ...model.right];
+    wingsEl.querySelectorAll('.unit .tag').forEach((tag, i) => {
+      const gauge = drawn[i];
+      if (gauge && gauge.kind === 'model') {
+        tag.textContent = gauge.monogram ||
+          (String(gauge.model || '?').trim()[0] || '?').toUpperCase();
+      }
+    });
+    equalize();
+  }
 
   // And never narrower than the panel that has to grow out of it. A single
   // chip showing a bare percentage measures under 300pt on a real notch and
@@ -364,7 +413,10 @@ function renderPeek() {
     : null;
   el.classList.toggle('off', !gauge);
   if (!gauge) return;
-  setRing(el.querySelector('.ring'), gauge.percent, gauge.severity);
+  // The floor keeps a low-percent alert legible: a 2% arc on a 16px ring is
+  // a hairline, and an alert ring that reads as an empty circle says the
+  // opposite of what the pill is there to say.
+  setRing(el.querySelector('.ring'), gauge.percent, gauge.severity, 10);
   // The number is the entire point of an alert; as one uniform run it got no
   // emphasis and no tone, leaving the ring as the only red thing in a red
   // warning.
@@ -403,7 +455,7 @@ function alignPanel(panel) {
   }
 
   const model = VM.wingsModel(state.data.gauges, wingSources());
-  if (state.wings && model) {
+  if (wingsShowing(model)) {
     // Centred on the BAND's real extent, measured — not on the notch.
     //
     // With two equalized chips those are the same point. With one chip the
@@ -460,9 +512,6 @@ function renderPanel() {
     staleEl.querySelector('.stale-text').textContent =
       VM.staleLine(d.reason, d.retryAt, Date.now(), d.accountLive);
   }
-
-  // A 400pt slab holding one line and a button reads unresolved.
-  panel.classList.toggle('narrow', !gauges.length);
 
   const note = VM.ceilingNote(d);
   const ceilingEl = $('#ceiling');

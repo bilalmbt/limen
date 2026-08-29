@@ -386,4 +386,13 @@ test('the sign-in button reports every outcome, and locks while working', () => 
     'status outranks the reason: a run in progress is a run in progress');
 });
 
+test('an empty-but-valid answer has words of its own', () => {
+  // The dressed reading a 200-with-no-limits leaves behind used to carry no
+  // reason at all, and the status strip captioned the kept numbers with
+  // "Unknown problem".
+  assert.strictEqual(VM.reasonLabel('empty'), 'Claude answered with no limits');
+  assert.ok(VM.staleLine('empty', Date.now() + 120000, Date.now()).includes('retrying in'),
+    'and the retry time rides along like any other degraded state');
+});
+
 console.log(`\n${passed} viewmodel tests passed`);
