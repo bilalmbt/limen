@@ -156,6 +156,25 @@ top-center, that appears only while the island has something to say
   island keeps checking at the normal pace and on every hover, since no
   API call is involved.
 
+## The renderer's shape
+
+One direction: IPC messages land in a small store, a single subscriber
+repaints, and the paint order is a guarantee rather than a habit — wings
+before panel, because the panel's edges are measured from the chips' drawn
+pixels, and the clickable surface last, so the reported rects describe what
+is actually on screen.
+
+Each drawn thing has one painter (`anchor`, `wings`, `peek`, `panel`,
+`primebar`, `surface`), written as a factory handed the document, the
+viewmodel and its own root element. The files are UMD, so the very code that
+ships loads in the page with `<script>` tags and in Node with `require()` —
+`test/renderer.test.js` exercises the real modules rather than a
+transcription. Decisions — wording, tones, which button shows, which
+settings chip is spent — live in `src/viewmodel.js` and are tested there;
+painters only apply them. `src/renderer/band.js` holds the one contract two
+painters share: the band's measured extent, and the 300 pt floor below which
+neither band nor panel may shrink.
+
 ## What the tests cover
 
 `npm test` runs the pure-module suites — a couple of hundred tests, no

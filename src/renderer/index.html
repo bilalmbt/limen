@@ -34,7 +34,7 @@
         <span class="title">Claude</span>
         <span class="plan"></span>
         <span class="when"></span>
-        <button class="iconbtn" id="refresh-btn" title="Refresh now">&#8635;</button>
+        <button class="iconbtn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">&#8635;</button>
       </div>
       <div id="stale" class="off"><span class="dot"></span><span class="stale-text"></span></div>
       <div id="rows"></div>
@@ -73,7 +73,22 @@
       </div>
     </div>
   </div>
+  <!-- Plain scripts, not modules: the CSP allows only 'self', and UMD files
+       load identically here and under require() in the Node tests. Order is
+       the dependency graph — shared answers first, one painter per drawn
+       thing, then island.js composes them (and fails loudly if one is
+       missing). -->
   <script src="../viewmodel.js"></script>
+  <script src="dom.js"></script>
+  <script src="store.js"></script>
+  <script src="selectors.js"></script>
+  <script src="band.js"></script>
+  <script src="anchor.js"></script>
+  <script src="wings.js"></script>
+  <script src="peek.js"></script>
+  <script src="surface.js"></script>
+  <script src="primebar.js"></script>
+  <script src="panel.js"></script>
   <script src="island.js"></script>
 </body>
 </html>

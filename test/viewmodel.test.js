@@ -395,4 +395,135 @@ test('an empty-but-valid answer has words of its own', () => {
     'and the retry time rides along like any other degraded state');
 });
 
+test('the header verb matches what the panel can honestly claim', () => {
+  assert.strictEqual(VM.whenWord({ ok: true, gauges: [{}] }), 'refreshed');
+  assert.strictEqual(VM.whenWord({ ok: true, stale: true, gauges: [{}] }), 'as of');
+  assert.strictEqual(VM.whenWord({ ok: false, gauges: [{}] }), 'as of',
+    'a failed fetch is degraded even without the stale flag');
+  assert.strictEqual(VM.whenWord({ ok: false, gauges: [] }), 'checked',
+    'with nothing to show, "checked" is the one claim left');
+});
+
+test('the degraded strip appears for kept numbers or a pending retry — not twice for sign-in', () => {
+  const now = 1000000;
+  assert.strictEqual(VM.staleVisible({ ok: true, gauges: [{}] }, now), false, 'healthy: no strip');
+  assert.strictEqual(VM.staleVisible({ ok: false, reason: 'network', gauges: [{}] }, now), true);
+  assert.strictEqual(VM.staleVisible({ ok: false, reason: 'rate-limited', gauges: [], retryAt: now + 60000 }, now),
+    true, 'no numbers but a retry pending: the ETA is the whole message');
+  assert.strictEqual(VM.staleVisible({ ok: false, reason: 'rate-limited', gauges: [] }, now), false);
+  assert.strictEqual(VM.staleVisible({ ok: false, reason: 'token-expired', gauges: [], retryAt: now + 60000 }, now),
+    false, 'the empty-note and the button already own the credential story');
+  assert.strictEqual(VM.staleVisible({ ok: false, reason: 'token-expired', gauges: [{}] }, now),
+    true, 'but kept rows still need their caption');
+});
+
+test('the panel reshapes on the gauge list, and on the reason only when empty', () => {
+  const a = VM.panelShape({ gauges: [{ id: 'session' }, { id: 'weekly' }] });
+  assert.strictEqual(a, 'session|weekly');
+  assert.strictEqual(VM.panelShape({ gauges: [{ id: 'session' }], reason: 'x' }), 'session',
+    'the reason never tears rows down mid-entrance');
+  assert.notStrictEqual(VM.panelShape({ ok: false, reason: 'network', gauges: [] }),
+    VM.panelShape({ ok: false, reason: 'token-expired', gauges: [] }),
+    'empty panels with different stories are different shapes');
+});
+
+test('an empty panel distinguishes "no limits" from a diagnosis', () => {
+  assert.strictEqual(VM.emptyNote({ ok: true }), 'No limits exposed for this account');
+  assert.strictEqual(VM.emptyNote({ ok: false, reason: 'network' }), 'No connection');
+});
+
+test('a peek shows the limit it was raised for, or nothing at all', () => {
+  const gauges = [{ id: 'session', percent: 20 }, { id: 'weekly', percent: 95 }];
+  assert.strictEqual(VM.peekGauge(gauges, { gaugeId: 'weekly' }), gauges[1]);
+  assert.strictEqual(VM.peekGauge(gauges, { gaugeId: 'model-opus' }), null,
+    'no fallback: a pill showing a DIFFERENT limit is worse than none');
+  assert.strictEqual(VM.peekGauge(gauges, null), null);
+  assert.strictEqual(VM.peekGauge(undefined, { gaugeId: 'weekly' }), null);
+});
+
+test('the monogram fallback prefers what the API declared', () => {
+  assert.strictEqual(VM.wingMonogram({ monogram: 'F', model: 'Fable' }), 'F');
+  assert.strictEqual(VM.wingMonogram({ model: 'somelongname' }), 'S');
+  assert.strictEqual(VM.wingMonogram({}), '?');
+  assert.strictEqual(VM.wingMonogram(null), '?');
+});
+
+test('the auto-open mode reads chain over at over off', () => {
+  assert.strictEqual(VM.primeMode(null), '');
+  assert.strictEqual(VM.primeMode({ at: '', chain: false }), '');
+  assert.strictEqual(VM.primeMode({ at: '08:00', chain: false }), 'at');
+  assert.strictEqual(VM.primeMode({ at: '08:00', chain: true }), 'chain',
+    'chain wins: a chained schedule ignores its leftover time');
+});
+
+test('the Show chips spend and free themselves by what is actually drawn', () => {
+  const gauges = [
+    { id: 'session', kind: 'session', percent: 10 },
+    { id: 'weekly', kind: 'weekly', percent: 20 },
+    { id: 'model-a', kind: 'model', model: 'Fable', percent: 30 }
+  ];
+  const by = (chips) => Object.fromEntries(chips.map((c) => [c.source, c]));
+
+  let chips = by(VM.sourceChips(gauges, ['session']));
+  assert.strictEqual(chips.session.disabled, true,
+    'the last chip still drawing cannot be turned off — the band would go empty');
+  assert.strictEqual(chips.weekly.disabled, false);
+  assert.strictEqual(chips.model.disabled, false);
+
+  chips = by(VM.sourceChips(gauges, ['session', 'weekly', 'model']));
+  assert.deepStrictEqual([chips.session.on, chips.weekly.on, chips.model.on], [true, true, true]);
+  assert.deepStrictEqual(
+    [chips.session.disabled, chips.weekly.disabled, chips.model.disabled],
+    [false, false, false], 'three drawing: any one of them may go');
+
+  chips = by(VM.sourceChips([gauges[0]], ['session', 'weekly', 'model']));
+  assert.strictEqual(chips.session.disabled, true, 'the only one drawing is the last one standing');
+  assert.strictEqual(chips.weekly.disabled, false,
+    'a chip nothing is drawing for is not the last one standing — it may be turned off');
+
+  chips = by(VM.sourceChips([gauges[0]], ['session']));
+  assert.strictEqual(chips.weekly.disabled, true, 'a limit this account does not expose is not a choice');
+  assert.strictEqual(chips.model.disabled, true);
+
+  chips = by(VM.sourceChips([], ['session']));
+  assert.strictEqual(chips.weekly.disabled, false,
+    'an empty gauge list is a fetch that has not landed, not an account without quotas');
+});
+
+test('a full band spends the chips that are off', () => {
+  const gauges = [
+    { id: 'session', kind: 'session', percent: 10 },
+    { id: 'weekly', kind: 'weekly', percent: 20 },
+    { id: 'model-a', kind: 'model', model: 'Fable', percent: 30 }
+  ];
+  // Three slots taken — one by a name this version does not draw (a
+  // hand-edited config, or the retired 'auto'). The off chip is spent by
+  // the cap: a fourth limit has nowhere to go.
+  const chips = Object.fromEntries(
+    VM.sourceChips(gauges, ['auto', 'session', 'weekly']).map((c) => [c.source, c]));
+  assert.strictEqual(chips.model.on, false);
+  assert.strictEqual(chips.model.disabled, true, 'the ceiling is visible before you reach for it');
+  assert.strictEqual(chips.session.disabled, false, 'two drawing: either may still go');
+});
+
+test('at most one panel button, and the right one', () => {
+  const gauges = [{ id: 'session', kind: 'session', percent: 10 }];
+  let b = VM.panelButtons({ reason: 'token-expired', gauges, canPrime: true }, null);
+  assert.ok(b.signin && !b.prime, 'a credential problem outranks a prime');
+
+  b = VM.panelButtons({ reason: null, gauges, canPrime: true }, null);
+  assert.ok(!b.signin && b.prime);
+  assert.strictEqual(b.prime.label, 'Open a session window');
+
+  b = VM.panelButtons({ reason: null, gauges, canPrime: false }, 'priming');
+  assert.deepStrictEqual(b.prime, { label: 'Opening a window…', disabled: true },
+    'a prime in flight keeps its button even after canPrime drops');
+
+  b = VM.panelButtons({ reason: null, gauges: [], canPrime: true }, null);
+  assert.ok(!b.signin && !b.prime, 'an empty panel has never carried the prime button');
+
+  b = VM.panelButtons({ reason: null, gauges, canPrime: false }, null);
+  assert.ok(!b.signin && !b.prime);
+});
+
 console.log(`\n${passed} viewmodel tests passed`);

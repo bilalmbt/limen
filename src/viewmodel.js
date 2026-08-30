@@ -188,8 +188,7 @@
     // one falls back to its monogram — a chip is not a marquee.
     const name = String(gauge.model || '').trim();
     if (name && name.length <= 8) return name;
-    if (gauge.monogram) return gauge.monogram;
-    return name ? name[0].toUpperCase() : '?';
+    return wingMonogram(gauge);
   }
 
   /**
@@ -231,6 +230,153 @@
     const m = mins % 60;
     if (h < 24) return m ? `${h}h${String(m).padStart(2, '0')} left` : `${h}h left`;
     return `${Math.round(h / 24)}d left`;
+  }
+
+  /** Is this reading degraded — failed outright, or kept from an older try? */
+  function isStale(data) {
+    return Boolean(data) && (data.stale === true || data.ok === false);
+  }
+
+  /**
+   * The verb before the header timestamp. "refreshed" claims the figures are
+   * now; a degraded reading gets "as of", and a panel with nothing to show
+   * says only that it "checked" — the one claim it can still make.
+   */
+  function whenWord(data) {
+    if (!data || !(data.gauges || []).length) return 'checked';
+    return isStale(data) ? 'as of' : 'refreshed';
+  }
+
+  /**
+   * Whether the degraded strip has anything to say. With gauges on screen it
+   * captions them; with none it still appears for a pending retry — the word
+   * "rate-limited" alone on a black card with no ETA was a 15-minute silence.
+   * Except for a credential problem, where the empty-note and the sign-in
+   * button already own the story and the strip would tell it twice.
+   */
+  function staleVisible(data, now) {
+    if (!isStale(data)) return false;
+    const gauges = (data.gauges || []).length;
+    const pendingRetry = Boolean(data.retryAt && data.retryAt > now);
+    if (!gauges && isCredentialProblem(data.reason)) return false;
+    return Boolean(gauges || pendingRetry);
+  }
+
+  /**
+   * The panel's reconciliation key: rows rebuild only when this changes.
+   * The reason only shapes the DOM while there are no gauges to draw;
+   * letting it into the key otherwise tore the rows down mid-entrance (a
+   * 'loading' placeholder becoming a real reading on the very first hover),
+   * restarting the stagger for the rows but not the header.
+   */
+  function panelShape(data) {
+    const gauges = (data && data.gauges) || [];
+    return gauges.length
+      ? gauges.map((g) => g.id).join('|')
+      : `empty#${(data && data.reason) || ''}#${Boolean(data && data.ok)}`;
+  }
+
+  /** What an empty panel says. A successful answer with no limits is its
+      own case, not an "unknown" error. */
+  function emptyNote(data) {
+    if (data && data.ok) return 'No limits exposed for this account';
+    return reasonLabel(data && data.reason, data && data.accountLive);
+  }
+
+  /**
+   * The gauge a peek names, or nothing. No fallback to gauges[0]: an alert
+   * pill showing a DIFFERENT limit's number is worse than showing nothing.
+   * Model quotas come and go with what the API sends, and the alert names
+   * the one it was raised for.
+   */
+  function peekGauge(gauges, peek) {
+    if (!peek) return null;
+    return (gauges || []).find((g) => g.id === peek.gaugeId) || null;
+  }
+
+  /** The shortest thing a model chip can wear when the band runs out of
+      room: its declared monogram, else the name's first letter. */
+  function wingMonogram(gauge) {
+    if (!gauge) return '?';
+    if (gauge.monogram) return gauge.monogram;
+    const name = String(gauge.model || '').trim();
+    return name ? name[0].toUpperCase() : '?';
+  }
+
+  /** Which auto-open mode a schedule is in: '' (off), 'at', or 'chain'. */
+  function primeMode(prime) {
+    if (!prime) return '';
+    return prime.chain ? 'chain' : prime.at ? 'at' : '';
+  }
+
+  /** Two chips flank the notch, so three limits is the most the band holds. */
+  var MAX_SOURCES = 3;
+
+  /** Which gauge kind each band source draws from. */
+  var SOURCE_KIND = { session: 'session', weekly: 'weekly', model: 'model' };
+
+  /**
+   * The Show chips' states, decided together because they gate one another.
+   *
+   * A chip that is on can only be turned off while something else still
+   * draws — the last one standing would leave the band empty. But "last one"
+   * means last one DRAWING: a source the account cannot supply resolves to
+   * nothing and the band falls back to whatever is binding, so the chip said
+   * "Model" while the menu bar showed "Week", and `sole` disabled the one
+   * click that would have corrected it.
+   *
+   * A chip that is off is spent when the band is full — a fourth limit has
+   * nowhere to go — or when the account does not expose that limit at all.
+   * Absence is only claimed while a reading is actually in hand: an empty
+   * gauge list is a fetch that has not landed, not an account without quotas.
+   * Both ends of the range are shown rather than enforced silently.
+   *
+   * @returns {{source: string, on: boolean, disabled: boolean}[]} in the
+   *   canonical draw order (session, weekly, model).
+   */
+  function sourceChips(gauges, sources) {
+    const list = gauges || [];
+    const chosen = Array.isArray(sources) ? sources : [];
+    const full = chosen.length >= MAX_SOURCES;
+    const model = wingsModel(list, chosen);
+    const drawnKinds = new Set(model ? [...model.left, ...model.right].map((g) => g.kind) : []);
+    const drawing = (source) => drawnKinds.has(SOURCE_KIND[source]);
+    const sole = chosen.filter(drawing).length <= 1;
+    return Object.keys(SOURCE_KIND).map((source) => {
+      const on = chosen.includes(source);
+      const kind = SOURCE_KIND[source];
+      const absent = list.length > 0 && !list.some((g) => g.kind === kind);
+      return { source, on, disabled: on ? (sole && drawing(source)) : (full || absent) };
+    });
+  }
+
+  /**
+   * The panel's two action buttons, as one decision — they used to be two
+   * functions that quietly stood on each other. At most one shows: a
+   * credential problem outranks a prime (the prime cannot work anyway), so
+   * the sign-in button takes the slot and the prime button waits.
+   */
+  function panelButtons(data, signinStatus) {
+    const d = data || {};
+    if (isCredentialProblem(d.reason)) {
+      const action = signInAction(d.reason, signinStatus,
+        { accountLive: d.accountLive, windowOpen: d.sessionOpen });
+      return { signin: action, prime: null };
+    }
+    // The prime button belongs under real rows. An empty panel's whole story
+    // is its note (plus sign-in when that is the fix); it has never carried
+    // the prime button, and growing one there would be a change of subject.
+    if (!((d.gauges || []).length)) return { signin: null, prime: null };
+    const busy = signinStatus === 'priming';
+    if (!d.canPrime && !busy) return { signin: null, prime: null };
+    // Every outcome reaches the user: working locks the button, a failure
+    // says so and invites a retry, and the label never lies about the state.
+    const prime = busy
+      ? { label: 'Opening a window…', disabled: true }
+      : signinStatus === 'prime-failed'
+        ? { label: 'Could not open — try again', disabled: false }
+        : { label: 'Open a session window', disabled: false };
+    return { signin: null, prime };
   }
 
   /** The limit that will stop you first: flagged active, else the fullest. */
@@ -352,6 +498,8 @@
   return {
     tone, rowLabel, timeOptions, resetLabel, reasonLabel, staleLine, signInAction, trayTitle,
     numbersAreCurrent,
-    wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem
+    wingsModel, wingTag, wingReset, ceilingNote, rateLine, isCredentialProblem,
+    isStale, whenWord, staleVisible, panelShape, emptyNote, peekGauge,
+    wingMonogram, primeMode, sourceChips, panelButtons, MAX_SOURCES
   };
 }));
