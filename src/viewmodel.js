@@ -469,6 +469,11 @@
     const { accountLive, windowOpen } = ctx || {};
     if (status === 'working') return { label: 'Signing in…', disabled: true };
     if (status === 'needs-terminal') return { label: 'Open Terminal to finish', disabled: false };
+    // Claude Code itself is missing — nothing to nudge, no Terminal command
+    // that would not end in "command not found". The button names the real
+    // next step, and pressing it opens the install page: a button that says
+    // it will open a page may open a page.
+    if (status === 'no-claude') return { label: 'Open the Claude Code install page', disabled: false };
     // A fresh login is still the best move even when the account is live:
     // it rewrites the Keychain entry, which is what an unreadable one needs.
     if (reason === 'no-credentials' && accountLive === true) {

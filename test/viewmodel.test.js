@@ -377,6 +377,15 @@ test('the sign-in button offers what can actually be done', () => {
     'Open Terminal to sign in', 'no context object is not a crash');
 });
 
+test('a machine without Claude Code is sent to the install page, not to Terminal', () => {
+  // Opening Terminal to run a command that does not exist ends in "command
+  // not found" — a dead end that reads as our bug. The status outranks the
+  // reason, like the other statuses do.
+  const a = VM.signInAction('no-credentials', 'no-claude', {});
+  assert.strictEqual(a.label, 'Open the Claude Code install page');
+  assert.strictEqual(a.disabled, false, 'the button IS the way out');
+});
+
 test('the sign-in button reports every outcome, and locks while working', () => {
   assert.deepStrictEqual(VM.signInAction('token-expired', 'working', {}),
     { label: 'Signing in…', disabled: true }, 'no second click while one is running');

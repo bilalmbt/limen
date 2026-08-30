@@ -28,16 +28,56 @@ const CRED_FILE = path.join(os.homedir(), '.claude', '.credentials.json');
 const KEYCHAIN_SERVICES = ['Claude Code-credentials', 'Claude Code'];
 
 /**
+ * The one candidate worth trying, from however many stores answered.
+ *
+ * The stores genuinely diverge: Claude Code has written the Keychain AND
+ * `~/.claude/.credentials.json` on the same Mac, hours apart, and a failed
+ * refresh can leave a blob that still parses but carries no token. Taking
+ * the first store that parsed — which is what this used to do — read an
+ * expired Keychain entry as "token expired" while a working token sat in
+ * the file, and an emptied one as "not signed in" without ever looking
+ * further. Signed out and signed in at the same time, depending on which
+ * store you asked.
+ *
+ * Ranked by `expiresAt`, which is also the order of "most likely to work":
+ * a token inside its known window beats one with no stated window (ranked
+ * as `now`) beats one whose window has closed — and among expired tokens
+ * the freshest is still the right one to NAME when reporting the failure.
+ *
+ * @param {object[]} candidates  every parsed blob that carries a token
+ * @param {number} now
+ */
+function pickCredentials(candidates, now) {
+  const usable = (candidates || []).filter((c) => c && c.accessToken);
+  if (!usable.length) return null;
+  const rank = (c) => Number.isFinite(c.expiresAt) ? c.expiresAt : now;
+  return usable.reduce((best, c) => rank(c) > rank(best) ? c : best);
+}
+
+/**
+ * Would a fetch get past the local gates right now? The sign-in watcher
+ * asks this after every credential change: the flip from "no" to "yes" is
+ * the moment someone's login landed, and the only signal worth a refresh.
+ */
+function credentialsLookUsable(cred, now) {
+  if (!cred || !cred.accessToken) return false;
+  return !(cred.expiresAt && cred.expiresAt < now);
+}
+
+/**
  * Read Claude Code's credentials. Environment first (those setups have no
- * Keychain entry), then Keychain on macOS, then the credentials file — which
- * in practice is a Linux path: fresh macOS logins write only to the Keychain.
- * A locked or denied Keychain is treated exactly like a missing entry; the
- * permissive ACL that makes silent reads possible today may well tighten.
+ * Keychain entry and no expiry to weigh), then EVERY store that answers —
+ * both Keychain names on macOS, and the credentials file, which current
+ * Claude Code releases do write on macOS too. The best candidate wins; see
+ * pickCredentials for what best means. A locked or denied Keychain is
+ * treated exactly like a missing entry; the permissive ACL that makes
+ * silent reads possible today may well tighten.
  */
 async function readCredentials() {
   const envToken = (process.env.CLAUDE_CODE_OAUTH_TOKEN || '').trim();
   if (envToken) return { accessToken: envToken };
 
+  const candidates = [];
   if (process.platform === 'darwin') {
     for (const service of KEYCHAIN_SERVICES) {
       try {
@@ -51,19 +91,20 @@ async function readCredentials() {
           'find-generic-password', '-a', os.userInfo().username, '-w', '-s', service
         ], { encoding: 'utf8', timeout: 5000 });
         const parsed = JSON.parse(stdout.trim());
-        if (parsed && parsed.claudeAiOauth) return parsed.claudeAiOauth;
+        if (parsed && parsed.claudeAiOauth) candidates.push(parsed.claudeAiOauth);
       } catch (_) {
         // No entry under this name, locked Keychain, or a read refused outside
-        // a GUI session. Try the next name, then the file.
+        // a GUI session. The other stores still get their say.
       }
     }
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'));
-    return parsed.claudeAiOauth || null;
+    if (parsed && parsed.claudeAiOauth) candidates.push(parsed.claudeAiOauth);
   } catch (_) {
-    return null;
+    // No file, or not ours to parse — the Keychain candidates stand alone.
   }
+  return pickCredentials(candidates, Date.now());
 }
 
 function httpsGetJson(token) {
@@ -316,7 +357,10 @@ async function fetchUsage() {
   }
 }
 
-module.exports = { fetchUsage, readCredentials, normalize, reasonFor, planLabel };
+module.exports = {
+  fetchUsage, readCredentials, normalize, reasonFor, planLabel,
+  pickCredentials, credentialsLookUsable
+};
 
 if (require.main === module) {
   // `--oneline` is for a tmux status bar, a shell prompt, or a Claude Code

@@ -36,7 +36,8 @@ if (process.env.ISLAND_SELFTEST && !process.env.LIMEN_CONFIG_DIR) {
   }
 }
 
-const { fetchUsage } = require('./usage');
+const { fetchUsage, readCredentials, credentialsLookUsable } = require('./usage');
+const { createCredWatch } = require('./credwatch');
 const {
   FORCE_FLOOR_MS, nextDelay, shouldRefreshOnReveal, mayFetch, isServerImposed
 } = require('./schedule');
@@ -466,7 +467,14 @@ function applyEffects(effects) {
       clearTimeout(hideTimer);
       show();
       if (ready) win.webContents.send('panel', true);
-      if (shouldRefreshOnReveal(lastGood && lastGood.fetchedAt, failures, Date.now())) refresh('reveal');
+      // Forced while the account is unreadable: that state made no request,
+      // so there is no pacing to protect — and a person who just signed in
+      // is hovering at a widget that would otherwise answer "held" until
+      // the timer came round. The five-second floor still bounds it, and a
+      // server-imposed backoff still refuses; see mayFetch.
+      if (shouldRefreshOnReveal(lastGood && lastGood.fetchedAt, failures, Date.now())) {
+        refresh('reveal', credProblem());
+      }
     } else if (effect === 'collapse') {
       setInteractive(false);
       if (ready) win.webContents.send('panel', false);
@@ -715,7 +723,7 @@ async function refresh(cause = 'schedule', force = false) {
     // by anything — takes its follow-up state with it. Left standing, the
     // next problem days later opened Terminal on the FIRST click, from a
     // button that had not named Terminal in this episode at all.
-    if (!credProblem()) pendingTerminal = false;
+    if (!credProblem()) { pendingTerminal = false; pendingInstall = false; }
 
     if (!data.ok && VM.isCredentialProblem(data.reason)) {
       // Cheap, but still a subprocess, and this loop runs every two minutes
@@ -895,6 +903,10 @@ const WELL_KNOWN_CLAUDE = [
   '/usr/local/bin/claude'
 ];
 
+// Where "Install Claude Code first" sends people: the project page, which
+// carries the install instructions and is the least likely URL to move.
+const CLAUDE_INSTALL_URL = 'https://github.com/anthropics/claude-code';
+
 /** A path that exists and can be executed — `command -v` happily returns an
     alias or a shell function, neither of which is one. */
 function usableBinary(p) {
@@ -980,6 +992,25 @@ let accountProbe = { reason: null, at: 0, live: undefined };
 
 let signingIn = false;
 let pendingTerminal = false;   // the first click nudges; a second opens Terminal
+let pendingInstall = false;    // no binary found; a second click opens the install page
+
+// The sign-in watcher: local credential re-reads on a heartbeat, the
+// credentials file watched directly, so a login is noticed in seconds
+// instead of at the next timer. Checks are local reads only; the single
+// verifying refresh it fires goes through the same gate as every fetch.
+const credWatch = createCredWatch({
+  read: readCredentials,
+  looksUsable: credentialsLookUsable,
+  isProblem: () => credProblem(),
+  onUsable: () => {
+    verifyingRefresh('sign-in-detected')
+      .catch((err) => trace(`sign-in-detected refresh failed: ${(err && err.message) || err}`));
+  },
+  watch: (dir, listener) => fs.watch(dir, listener),
+  dir: path.join(os.homedir(), '.claude'),
+  file: '.credentials.json',
+  trace
+});
 
 /**
  * One click from the tray. Two rungs:
@@ -1313,6 +1344,10 @@ function sendSignIn(status, detail) {
  */
 function openLoginTerminal(bin) {
   trace('sign-in: opening Terminal for an interactive login');
+  // A login is now EXPECTED: watch the credentials hard for a few minutes,
+  // so the widget lights up the moment the browser round-trip lands rather
+  // than at the next timer.
+  credWatch.expectLogin();
   execFile('/usr/bin/osascript', [
     '-e', 'on run argv',
     '-e', 'tell application "Terminal" to activate',
@@ -1340,6 +1375,28 @@ async function signInViaClaudeCode() {
   updateTray();
   try {
     const bin = await resolveClaude();
+
+    // Claude Code may simply not be here — a fresh machine, an install the
+    // resolver cannot see. Opening Terminal to run a command that does not
+    // exist ends in "command not found", which reads as our bug and helps
+    // nobody. Name the real next step instead, and only open the browser on
+    // the click that asked for it — the same two-step the Terminal uses.
+    // Re-resolving on that second click is on purpose: if Claude Code was
+    // installed in the meantime, the flow continues as a normal sign-in.
+    if (!bin) {
+      if (pendingInstall) {
+        pendingInstall = false;
+        trace('sign-in: no claude binary, opening the install page');
+        openExternal(CLAUDE_INSTALL_URL);
+        sendSignIn(null);
+      } else {
+        pendingInstall = true;
+        trace('sign-in: no claude binary found');
+        sendSignIn('no-claude');
+      }
+      return;
+    }
+    pendingInstall = false;
 
     // The button already reads "Open Terminal to finish", which means a nudge
     // was tried and did not work. Running it again on the way to Terminal is
@@ -1473,7 +1530,7 @@ function buildMenu(force = false) {
   if (!tray || tray.isDestroyed()) return;
   const paused = alertsPausedUntil > Date.now();
   const signature = [
-    credProblem(), signingIn, pendingTerminal, machine.wings, paused, primeNote(), config.contentProtection,
+    credProblem(), signingIn, pendingTerminal, pendingInstall, machine.wings, paused, primeNote(), config.contentProtection,
     priming, sessionOpen(), config.primeAt[0] || '', config.primeDays.length,
     (lastData.gauges || []).length > 0, lastData.ok === true, loginItemEnabled(),
     refreshHeldFor(), canShowIsland()
@@ -1487,6 +1544,7 @@ function buildMenu(force = false) {
         // this item never did, so the second click activated Terminal and
         // typed a command from a label that had promised a sign-in.
         label: signingIn ? 'Signing in…'
+          : pendingInstall ? 'Open the Claude Code install page'
           : pendingTerminal ? 'Open Terminal to sign in'
           : 'Sign in with Claude Code',
         enabled: !signingIn,
@@ -1638,7 +1696,9 @@ function showPanel() {
   const r = I.promote(machine, Date.now());
   machine = r.m;
   applyEffects(r.effects);
-  refresh('shown');
+  // Forced on an unreadable account for the same reason as the reveal: a
+  // deliberate open is a person asking now, and no request is being paced.
+  refresh('shown', credProblem());
 }
 
 /**
@@ -2069,6 +2129,10 @@ app.whenReady().then(() => {
 
   createTray();
   armPrimeTimer();
+  // Real runs only: a capture or demo never fetches, so it has no sign-in
+  // to notice. Started before the first refresh so a launch straight into a
+  // credential problem is already being watched.
+  credWatch.start();
   // Restarting while rate limited must not cost an immediate extra hit: the
   // restored failure count re-enters the backoff where it left off. But only
   // for failures the endpoint actually saw — a stale count from a local
@@ -2114,7 +2178,10 @@ app.whenReady().then(() => {
   // but the failure count is NOT cleared here. Zeroing it would erase the
   // very backoff that survived the sleep, and a machine that wakes often
   // would hammer an endpoint that had already pushed back.
-  powerMonitor.on('resume', () => refresh('resume'));
+  // A wake with the account unreadable is forced for the reveal's reason:
+  // the sign-in may have happened on another machine while this one slept,
+  // and the local recheck costs nothing.
+  powerMonitor.on('resume', () => refresh('resume', credProblem()));
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) {
     screen.on(event, onDisplaysChanged);
   }
@@ -2193,5 +2260,6 @@ app.on('before-quit', () => {
   clearTimeout(hideTimer);
   clearTimeout(peekTimer);
   clearTimeout(primeTimer);
+  credWatch.stop();
   globalShortcut.unregisterAll();
 });

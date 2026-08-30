@@ -151,10 +151,27 @@ top-center, that appears only while the island has something to say
   **Sign in with Claude Code** button (the tray menu gets one too, and the
   menu bar item reads **sign in**): it nudges Claude Code headlessly
   (Claude Code refreshes its own token before any call), and only if the
-  account is truly signed out does it open Terminal running `claude` for a
-  real `/login`. Local credential states never feed the backoff — the
-  island keeps checking at the normal pace and on every hover, since no
-  API call is involved.
+  account is truly signed out does it open Terminal running
+  `claude auth login`. On a machine with no `claude` binary at all, the
+  button says so and opens the install page instead — Terminal ending in
+  "command not found" is a dead end wearing our name. Local credential
+  states never feed the backoff — the island keeps checking at the normal
+  pace, and a hover, a deliberate open or a wake re-reads the credentials
+  immediately, since no API call is involved in looking.
+- **A sign-in is noticed in seconds, not at the next timer.** While the
+  account is unreadable, the credentials file is watched directly and the
+  Keychain re-read on a heartbeat — fast for a few minutes after Terminal
+  was opened, when a login is actually expected. Every check is a local
+  read; only a credential that has *changed and looks usable* earns the one
+  verifying fetch, so a revoked token that keeps failing is probed once,
+  not once per beat. The widget lights up the moment the login lands
+  instead of leaving the person hovering at "sign in".
+- **The stores are weighed, not raced.** Claude Code has written both the
+  Keychain and `~/.claude/.credentials.json` on the same Mac, hours apart,
+  and a failed refresh can leave a blob that parses but holds no token.
+  Every store is read and the best candidate wins — valid over undated
+  over expired, freshest expiry first — so an expired entry in one store
+  can no longer report "sign in" while a working token sits in another.
 
 ## The renderer's shape
 
@@ -194,9 +211,15 @@ Electron needed:
 - **Wording and tones** — the luminance-ordered ramp, server-graded
   severity outranking it, reset and pace labels, the status strip.
 - **The data layer** — normalization (a missing quota never becomes
-  a displayed zero), the one gate every fetch passes, the alert ledger —
-  once per level per window, pace warnings included, and a pause that skips
-  rather than holds — and persisted state.
+  a displayed zero), the choice between credential stores that disagree,
+  the one gate every fetch passes, the alert ledger — once per level per
+  window, pace warnings included, and a pause that skips rather than
+  holds — and persisted state.
+- **The sign-in watcher** — driven with fake reads and a fake watcher:
+  it notices a landing once per credential rather than once per beat,
+  costs nothing while the account is healthy, coalesces file-event
+  bursts, and degrades to the heartbeat when the directory cannot be
+  watched.
 - **Settings and priming** — a hand-edited file that cannot break
   the app, the wingCount migration, the band's source rules (canonical order,
   a cap of three, never empty), and the auto-open schedule.

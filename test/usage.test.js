@@ -3,7 +3,7 @@
    is that a missing quota never turns into a displayed zero. */
 
 const assert = require('assert');
-const { normalize, planLabel } = require('../src/usage');
+const { normalize, planLabel, pickCredentials, credentialsLookUsable } = require('../src/usage');
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok  ' + name); };
 
@@ -107,6 +107,56 @@ test('an unreadable plan is shown as nothing, never as its codename', () => {
     'only Max is sold in multiples; a 5x anywhere else is our misreading');
   assert.strictEqual(planLabel({}), '', 'a token-only setup has no plan to report');
   assert.strictEqual(planLabel(null), '');
+});
+
+// --- choosing between credential stores that disagree ------------------------
+
+const NOW = 1000000000000;
+const cred = (expiresAt, token = 'tok') => ({ accessToken: token, expiresAt });
+
+test('a valid token wins over an expired one, whichever store answered first', () => {
+  // The live case this exists for: an expired Keychain entry used to shadow
+  // a working token in ~/.claude/.credentials.json, and the widget said
+  // "sign in" at an account it could have read.
+  const expired = cred(NOW - 1000);
+  const valid = cred(NOW + 3600000);
+  assert.strictEqual(pickCredentials([expired, valid], NOW), valid);
+  assert.strictEqual(pickCredentials([valid, expired], NOW), valid, 'order does not decide');
+});
+
+test('a blob that parses but carries no token is not a candidate', () => {
+  // A failed refresh can empty the Keychain blob without removing it; that
+  // used to read as "not signed in" while the file held a real token.
+  const valid = cred(NOW + 3600000);
+  assert.strictEqual(pickCredentials([{ expiresAt: NOW + 9999999 }, valid], NOW), valid);
+  assert.strictEqual(pickCredentials([{ accessToken: '' }], NOW), null);
+  assert.strictEqual(pickCredentials([], NOW), null);
+  assert.strictEqual(pickCredentials(null, NOW), null);
+});
+
+test('an undated token sits between valid and expired', () => {
+  const undated = { accessToken: 'tok' };
+  assert.strictEqual(pickCredentials([cred(NOW - 1000), undated], NOW), undated,
+    'unknown window beats a window known to be over');
+  const valid = cred(NOW + 3600000);
+  assert.strictEqual(pickCredentials([undated, valid], NOW), valid,
+    'a window known to be open beats not knowing');
+});
+
+test('when everything is expired, the freshest is the one to name', () => {
+  const older = cred(NOW - 7200000);
+  const newer = cred(NOW - 1000);
+  assert.strictEqual(pickCredentials([older, newer], NOW), newer,
+    'reporting token-expired should describe the best candidate, not the worst');
+});
+
+test('usable means: a token, and no expiry already behind us', () => {
+  assert.strictEqual(credentialsLookUsable(null, NOW), false);
+  assert.strictEqual(credentialsLookUsable({}, NOW), false);
+  assert.strictEqual(credentialsLookUsable({ accessToken: '' }, NOW), false);
+  assert.strictEqual(credentialsLookUsable({ accessToken: 't' }, NOW), true);
+  assert.strictEqual(credentialsLookUsable(cred(NOW + 1000), NOW), true);
+  assert.strictEqual(credentialsLookUsable(cred(NOW - 1000), NOW), false);
 });
 
 console.log(`\n${passed} normalisation tests passed`);
