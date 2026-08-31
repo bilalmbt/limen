@@ -1,6 +1,6 @@
 {
   "name": "limen",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Your Claude Code usage limits, in the notch: an island that is invisible until you glance at it.",
   "main": "src/main.js",
   "scripts": {
