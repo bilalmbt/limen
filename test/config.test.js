@@ -32,6 +32,15 @@ test('auto-open is one choice: chain and a time cannot both survive', () => {
   assert.ok(dropped.some((d) => d.startsWith('primeAt')), 'and be reported, not silently dropped');
 });
 
+test('the notched override is a boolean or it is nothing', () => {
+  assert.strictEqual(C.sanitize({ notched: true }).config.notched, true);
+  assert.strictEqual(C.sanitize({ notched: false }).config.notched, false,
+    'false is a real answer, not an unset one');
+  const bad = C.sanitize({ notched: 'yes' });
+  assert.strictEqual(bad.config.notched, null, 'anything else means detect by shape');
+  assert.ok(bad.dropped.includes('notched'), 'and is reported, not silently eaten');
+});
+
 test('a time alone, or chain alone, is untouched', () => {
   assert.deepStrictEqual(C.sanitize({ primeAt: ['08:00'] }).file, { primeAt: ['08:00'] });
   assert.deepStrictEqual(C.sanitize({ primeChain: true }).file, { primeChain: true });

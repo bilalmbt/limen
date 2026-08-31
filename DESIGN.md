@@ -112,9 +112,14 @@ bounds.height − bounds.width / 1.6 > 2  ⇒  notched
 …and that difference *is* the notch-band height in points, at any scaling.
 Width is estimated at 12.23% of the logical width — the ratio measured on
 real 14" and 16" hardware, constant across models and scalings (override
-with `notchWidth` in the config). Displays without a notch get a drawn one,
-top-center, that appears only while the island has something to say
-(`externalDisplays: "off"` disables that).
+with `notchWidth` in the config; `notched: true/false` forces the whole
+detection, for third-party scalers that break the native aspect — or the
+day a new panel stops being 16:10 plus a band). Displays without a notch
+get a drawn one, top-center, that appears only while the island has
+something to say — and the band only counts as something to say by the
+chips' own rule, so a signed-out account never leaves a bare anchor
+wearing yesterday's plan label (`externalDisplays: "off"` disables the
+drawn notch entirely).
 
 ## Behavior guarantees, and where they are enforced
 

@@ -70,6 +70,7 @@ directory left by the old name is moved here the first time the app runs:
   "externalDisplays": "island",
   "displayId": "primary",
   "notchWidth": null,
+  "notched": null,
   "timeFormat": "auto",
   "osNotifications": false,
   "contentProtection": true,

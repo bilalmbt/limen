@@ -36,5 +36,17 @@
     return state.wings && Boolean(model) && vm.numbersAreCurrent(state.data);
   }
 
-  return { locale, timeFormat, wingInfo, wingSources, wingsShowing };
+  /**
+   * Does the island have anything on screen to root — a panel, a peek, or
+   * the band? The drawn notch keys off THIS, not the raw wings flag: it is
+   * an anchor for content, not furniture. Keyed off the flag, a signed-out
+   * account on a notchless display kept a black anchor wearing yesterday's
+   * plan label with no chips beside it — half-dressed. The chips' own rule
+   * is the band's one answer, so the anchor follows it.
+   */
+  function islandSaysSomething(state, model, vm) {
+    return Boolean(state.panelOpen || state.peek || wingsShowing(state, model, vm));
+  }
+
+  return { locale, timeFormat, wingInfo, wingSources, wingsShowing, islandSaysSomething };
 }));

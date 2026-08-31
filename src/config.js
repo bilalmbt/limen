@@ -26,6 +26,7 @@ const DEFAULTS = {
   externalDisplays: 'island', // 'island' draws a virtual one, 'off' draws nothing
   displayId: 'primary',     // which notchless display hosts the virtual island
   notchWidth: null,         // points; null = derived from the display
+  notched: null,            // true/false forces the answer; null = detect by shape
   timeFormat: 'auto',       // 'auto', '12' or '24'
   osNotifications: false,   // peek replaces notifications; turn both on if you like
   contentProtection: true,  // keep the island out of screenshots and shares
@@ -143,6 +144,10 @@ function clean(key, v) {
     case 'primeChain':
       return v === true ? true : v === false ? false : undefined;
     case 'contentProtection':
+      return typeof v === 'boolean' ? v : undefined;
+    // Only a hand-written true or false counts as forcing the detection;
+    // anything else — including an explicit null — means "detect by shape".
+    case 'notched':
       return typeof v === 'boolean' ? v : undefined;
     case 'externalDisplays':
       return v === 'off' || v === 'island' ? v : undefined;

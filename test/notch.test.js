@@ -110,6 +110,33 @@ test('notch width scales with the display, so any scaling mode is covered', () =
   assert.strictEqual(N.metrics(display(1800, 1169, { menuBar: 38 })).notchWidth, 220);
 });
 
+test('a hand-forced notched setting beats the shape rule, both ways', () => {
+  // The escape hatch for a third-party scaler forcing a non-native aspect —
+  // or a future panel that stops being 16:10-plus-band.
+  const flat = display(1920, 1080, { internal: false });
+  const forced = N.metrics(flat, { notched: true });
+  assert.strictEqual(forced.notched, true);
+  assert.strictEqual(forced.notchWidth, Math.round(1920 * N.G.notchWidthRatio),
+    'a forced notch is sized like a real one, not like an anchor');
+
+  const mbp = display(1512, 982, { menuBar: 32 });
+  const unforced = N.metrics(mbp, { notched: false });
+  assert.strictEqual(unforced.notched, false);
+  assert.ok(unforced.notchWidth <= N.G.virtualAnchorMax,
+    'and forcing flat goes back to the anchor sizing');
+});
+
+test('a forced notch on a flat shape still gets a usable strip', () => {
+  // Its aspect band is zero or negative; without the floor the hot strip
+  // would be a line of no height that could never be hovered.
+  const hidden = display(1920, 1080, { internal: true, menuBar: 0 });
+  const m = N.metrics(hidden, { notched: true });
+  assert.strictEqual(m.hotHeight, N.G.fallbackMenuBar);
+  const shown = display(1920, 1080, { internal: true, menuBar: 25 });
+  assert.strictEqual(N.metrics(shown, { notched: true }).hotHeight, 25,
+    'with a menu bar to read, the strip is the bar, as on a real notch');
+});
+
 test('a configured notch width beats the estimate', () => {
   const m = N.metrics(display(1512, 982), { notchWidth: 200 });
   assert.strictEqual(m.notchWidth, 200);

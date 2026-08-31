@@ -151,7 +151,12 @@ function saveConfig(patch) {
   writeConfigFile(file);
 }
 
-const overrides = () => (config.notchWidth ? { notchWidth: config.notchWidth } : {});
+const overrides = () => {
+  const o = {};
+  if (config.notchWidth) o.notchWidth = config.notchWidth;
+  if (typeof config.notched === 'boolean') o.notched = config.notched;
+  return o;
+};
 
 // --- State ------------------------------------------------------------------
 

@@ -190,6 +190,22 @@ test('wingsShowing is one answer: flag AND model AND readable account', () => {
     'a signed-out account keeps its chips out of the menu bar');
 });
 
+test('the drawn notch follows the chips, not the wings flag', () => {
+  const model = { left: [], right: [{}] };
+  const base = { panelOpen: false, peek: null, wings: true, data: { reason: null } };
+  assert.strictEqual(selectors.islandSaysSomething(base, model, VM), true,
+    'chips out: the anchor roots them');
+  assert.strictEqual(selectors.islandSaysSomething(
+    { ...base, data: { reason: 'token-expired' } }, model, VM), false,
+    'signed out: no chips, so no bare anchor wearing yesterday’s plan');
+  assert.strictEqual(selectors.islandSaysSomething({ ...base, wings: false }, model, VM), false);
+  assert.strictEqual(selectors.islandSaysSomething(
+    { ...base, data: { reason: 'token-expired' }, panelOpen: true }, model, VM), true,
+    'an open panel is something to say whatever the account state');
+  assert.strictEqual(selectors.islandSaysSomething(
+    { ...base, wings: false, peek: { gaugeId: 'session' } }, model, VM), true);
+});
+
 // --- the band contract ------------------------------------------------------
 
 test('bandExtent starts at the notch and grows to the drawn chips', () => {

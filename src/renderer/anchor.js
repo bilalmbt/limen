@@ -12,10 +12,12 @@
     const label = root.querySelector('.notch-plan');
 
     function render(state) {
-      const anything = state.panelOpen || state.peek || state.wings;
       const virtual = state.geometry && state.geometry.notched === false;
       const model = vm.wingsModel(state.data.gauges, selectors.wingSources(state));
       const joined = selectors.wingsShowing(state, model, vm);
+      // The band counts as "something to say" only when the chips are
+      // actually out (their rule, not the raw flag) — see the selector.
+      const anything = selectors.islandSaysSomething(state, model, vm);
       root.classList.toggle('off', !(virtual && anything));
       root.classList.toggle('join-left', joined && model.left.length > 0);
       root.classList.toggle('join-right', joined && model.right.length > 0);

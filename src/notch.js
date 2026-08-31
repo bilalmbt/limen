@@ -51,22 +51,31 @@ const G = {
  * What the top of this display looks like.
  * @param {{bounds: {x,y,width,height}, workArea: {x,y,width,height},
  *          internal?: boolean}} display  an Electron Display, or a fixture
- * @param {{notchWidth?: number}} overrides  config trumps the estimate
+ * @param {{notchWidth?: number, notched?: boolean}} overrides  config trumps
+ *          the estimates — width alone, or the whole detection
  */
 function metrics(display, overrides = {}) {
   const b = display.bounds;
   const menuBar = Math.max(0, (display.workArea ? display.workArea.y : b.y) - b.y);
   const band = b.height - b.width / G.aspect;
-  const notched = display.internal === true && band > G.notchSlack;
+  // The shape rule answers for every Mac Apple has shipped, but it can be
+  // overruled by hand: a third-party scaler forcing a non-native aspect on
+  // a notched panel — or the day a new panel stops being 16:10-plus-band —
+  // should be a config line, not a release.
+  const notched = typeof overrides.notched === 'boolean'
+    ? overrides.notched
+    : display.internal === true && band > G.notchSlack;
 
   // The notch is exactly as tall as the menu bar — Apple sizes the bar so
   // its background covers the cutout. The ASPECT band is a few points
   // taller (the panel below the cutout is not precisely 16:10), so using it
   // as the height overstated the notch by ~5 pt on every model. The band is
   // still the right fallback for an auto-hidden menu bar, where the
-  // physical cutout does not hide along with it.
+  // physical cutout does not hide along with it — floored, because a FORCED
+  // notch on a flat-shaped display has a zero-or-negative band, and a strip
+  // of no height could never be hovered.
   const hotHeight = notched
-    ? (menuBar > 20 ? menuBar : Math.round(band))
+    ? (menuBar > 20 ? menuBar : Math.max(G.fallbackMenuBar, Math.round(band)))
     : (menuBar > 0 ? menuBar : G.fallbackMenuBar);
 
   const notchWidth = overrides.notchWidth || (notched
